@@ -1,10 +1,11 @@
 import os
-import geopands as gpd
 
+import geopands as gpd
+import numpy as np
 import rasterio
 import utm
 from safetensors.torch import load_model
-from shapely.affinity import affine_transform
+from shapely.affinity import affine_transform, translate
 from shapely.geometry import Polygon
 from tcd_pipeline.pipeline import Pipeline
 from torch.utils.data import DataLoader
@@ -67,6 +68,11 @@ def mask_to_polygons(mask, dataset_reader):
     that are in the crs of the passed dataset reader
     """
 
+    padding = 10
+
+    # add padding for cv to work properly
+    mask_padded = np.pad(mask[0], padding)
+
     contours, _ = cv2.findContours(mask.astype(np.uint8).copy(),
                                    mode=cv2.RETR_EXTERNAL,
                                    method=cv2.CHAIN_APPROX_SIMPLE)
@@ -78,6 +84,10 @@ def mask_to_polygons(mask, dataset_reader):
         p = p.squeeze()
         p = np.concatenate([p, p[:1]], axis=0)
         p = Polygon(p)
+
+        # reverse padding effect
+        p = translate(p, xoff=-padding, yoff=-padding)
+
         poly.append(p)
 
     # affine transform from pixel to world coordinates
