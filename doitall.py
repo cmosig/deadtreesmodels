@@ -19,7 +19,6 @@ TCD_THRESHOLD = 200
 DEADWOOD_THRESHOLD = 0.9
 
 DEADWOOD_MODEL_PATH = "deadwood_model.pth"
-TCD_MODEL_PATH = "tcd_model.pth"
 
 TEMP_DIR = "temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
