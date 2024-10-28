@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 
 
-class DeadwoodInferenceDataset(Dataset):
+class InferenceDataset(Dataset):
 
     def __init__(self, image_path, tile_size=512, padding=56):
         super(DeadwoodInferenceDataset, self).__init__()

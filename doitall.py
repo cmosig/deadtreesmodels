@@ -1,12 +1,14 @@
-import rasterio
-from torch.utils.data import DataLoader
-from InferenceDataset import InferenceDataset
+import os
 
+import rasterio
 import utm
 from safetensors.torch import load_model
 from shapely.affinity import affine_transform
-from unet.unet_model import UNet
+from torch.utils.data import DataLoader
 from torchvision.transforms.functional import crop
+
+from InferenceDataset import InferenceDataset
+from unet_model import UNet
 
 TCD_RESOLUTION = 0.1  # m -> tree crown detection only works as 10cm
 TCD_THRESHOLD = 200
@@ -16,8 +18,13 @@ DEADWOOD_THRESHOLD = 0.9
 DEADWOOD_MODEL_PATH = "deadwood_model.pth"
 TCD_MODEL_PATH = "tcd_model.pth"
 
+TEMP_DIR = "temp"
+os.makedirs(TEMP_DIR, exist_ok=True)
+
 
 def reproject_to_10cm(input_tif, output_tif):
+    """takes an input tif file and reprojects it to 10cm resolution and writes it to output_tif"""
+
     with rasterio.open(input_tif) as src:
         # figure out centroid in epsg 4326
         centroid = src.lnglat()
@@ -88,7 +95,7 @@ def get_utm_string_from_latlon(lat, lon):
     return f"EPSG:{utm_code}"
 
 
-def inference_deadwood(input_tif: str) -> List[Polygon]:
+def inference_deadwood(input_tif: str):
     """
     gets path to tif file and returns polygons of deadwood in the CRS of the tif
     """
@@ -155,5 +162,20 @@ def inference_deadwood(input_tif: str) -> List[Polygon]:
     return polygons
 
 
-def inference_forestcover():
-    pass
+def inference_forestcover(input_tif: str):
+
+    # reproject tif to 10cm
+    temp_reproject_path = os.path.join(TEMP_DIR, input_tif.str.split('/')[-1])
+    reproject_to_10cm(input_tif, temp_reproject_path)
+
+    dataset = InferenceDataset(image_path=input_tif,
+                               tile_size=1024,
+                               padding=256)
+
+    loader_args = {
+        "batch_size": 1,
+        "num_workers": 2,
+        "pin_memory": True,
+        "shuffle": False,
+    }
+    inference_loader = DataLoader(dataset, **loader_args)
