@@ -1,5 +1,6 @@
 import os
 
+
 import geopandas as gpd
 import numpy as np
 import rasterio
@@ -7,6 +8,7 @@ from tqdm import tqdm
 import utm
 import torch
 import torch.nn as nn
+import cv2
 from safetensors.torch import load_model
 from shapely.affinity import affine_transform, translate
 from shapely.geometry import Polygon
@@ -126,7 +128,7 @@ def inference_deadwood(input_tif: str):
 
     loader_args = {
         "batch_size": 1,
-        "num_workers": 2,
+        "num_workers": 0,
         "pin_memory": True,
         "shuffle": False,
     }

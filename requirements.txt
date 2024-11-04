@@ -7,3 +7,4 @@ utm
 scikit-learn
 matplotlib
 safetensors
+cv2
