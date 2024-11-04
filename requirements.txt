@@ -1,0 +1,9 @@
+rasterio
+torch
+torchvision
+tqdm
+geopandas
+utm
+scikit-learn
+matplotlib
+safetensors

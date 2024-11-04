@@ -5,9 +5,8 @@ from torchvision.transforms import transforms
 
 
 class InferenceDataset(Dataset):
-
     def __init__(self, image_path, tile_size=512, padding=56):
-        super(DeadwoodInferenceDataset, self).__init__()
+        super(InferenceDataset, self).__init__()
         self.image_path = image_path
         self.tile_size = tile_size
         self.padding = padding
@@ -16,7 +15,8 @@ class InferenceDataset(Dataset):
         self.height = self.image_src.height
 
         self.cropped_windows = [
-            window for window in get_windows(
+            window
+            for window in get_windows(
                 xmin=self.padding,
                 ymin=self.padding,
                 xmax=self.width - self.padding,
@@ -50,13 +50,15 @@ class InferenceDataset(Dataset):
         # Reshape the image tensor to have 3 channels
         image = image.transpose(1, 2, 0)
 
-        image_transforms = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-            ),
-        ])
+        image_transforms = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225],
+                ),
+            ]
+        )
         image_tensor = image_transforms(image).float().contiguous()
         return image_tensor, cropped_window_dict
 

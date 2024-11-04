@@ -1,25 +1,27 @@
 import os
 
-import geopands as gpd
+import geopandas as gpd
 import numpy as np
 import rasterio
+from tqdm import tqdm
 import utm
+import torch
+import torch.nn as nn
 from safetensors.torch import load_model
 from shapely.affinity import affine_transform, translate
 from shapely.geometry import Polygon
-from tcd_pipeline.pipeline import Pipeline
+
+# from tcd.tcd_pipeline.pipeline import Pipeline
 from torch.utils.data import DataLoader
 from torchvision.transforms.functional import crop
 
-from InferenceDataset import InferenceDataset
-from unet_model import UNet
+from deadwood.InferenceDataset import InferenceDataset
+from deadwood.unet_model import UNet
 
 TCD_RESOLUTION = 0.1  # m -> tree crown detection only works as 10cm
 TCD_THRESHOLD = 200
-
 DEADWOOD_THRESHOLD = 0.9
-
-DEADWOOD_MODEL_PATH = "deadwood_model.pth"
+DEADWOOD_MODEL_PATH = "./model/model.safetensors"
 
 TEMP_DIR = "temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -41,25 +43,25 @@ def reproject_to_10cm(input_tif, output_tif):
             src.width,
             src.height,
             *src.bounds,
-            resolution=TCD_RESOLUTION)
+            resolution=TCD_RESOLUTION,
+        )
 
         kwargs = src.meta.copy()
-        kwargs.update({
-            'crs': dst_crs,
-            'transform': transform,
-            'width': width,
-            'height': height
-        })
+        kwargs.update(
+            {"crs": dst_crs, "transform": transform, "width": width, "height": height}
+        )
 
-        with rasterio.open(output_tif, 'w', **kwargs) as dst:
+        with rasterio.open(output_tif, "w", **kwargs) as dst:
             for i in range(1, src.count + 1):
-                reproject(source=rasterio.band(src, i),
-                          destination=rasterio.band(dst, i),
-                          src_transform=src.transform,
-                          src_crs=src.crs,
-                          dst_transform=transform,
-                          dst_crs=dst_crs,
-                          resampling=Resampling.nearest)
+                reproject(
+                    source=rasterio.band(src, i),
+                    destination=rasterio.band(dst, i),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs=dst_crs,
+                    resampling=Resampling.nearest,
+                )
 
 
 def mask_to_polygons(mask, dataset_reader):
@@ -73,9 +75,11 @@ def mask_to_polygons(mask, dataset_reader):
     # add padding for cv to work properly
     mask_padded = np.pad(mask[0], padding)
 
-    contours, _ = cv2.findContours(mask.astype(np.uint8).copy(),
-                                   mode=cv2.RETR_EXTERNAL,
-                                   method=cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        mask.astype(np.uint8).copy(),
+        mode=cv2.RETR_EXTERNAL,
+        method=cv2.CHAIN_APPROX_SIMPLE,
+    )
     poly = []
     for p in contours:
         if len(p) == 1:
@@ -92,8 +96,14 @@ def mask_to_polygons(mask, dataset_reader):
 
     # affine transform from pixel to world coordinates
     transform = dataset_reader.transform
-    transform_matrix = (transform.a, transform.b, transform.d, transform.e,
-                        transform.c, transform.f)
+    transform_matrix = (
+        transform.a,
+        transform.b,
+        transform.d,
+        transform.e,
+        transform.c,
+        transform.f,
+    )
     poly = [affine_transform(p, transform_matrix) for p in poly]
 
     return poly
@@ -112,9 +122,7 @@ def inference_deadwood(input_tif: str):
     gets path to tif file and returns polygons of deadwood in the CRS of the tif
     """
 
-    dataset = InferenceDataset(image_path=input_tif,
-                               tile_size=1024,
-                               padding=256)
+    dataset = InferenceDataset(image_path=input_tif, tile_size=1024, padding=256)
 
     loader_args = {
         "batch_size": 1,
@@ -175,9 +183,8 @@ def inference_deadwood(input_tif: str):
 
 
 def inference_forestcover(input_tif: str):
-
     # reproject tif to 10cm
-    temp_reproject_path = os.path.join(TEMP_DIR, input_tif.str.split('/')[-1])
+    temp_reproject_path = os.path.join(TEMP_DIR, input_tif.str.split("/")[-1])
     reproject_to_10cm(input_tif, temp_reproject_path)
 
     pipeline = Pipeline(model_or_config="restor/tcd-segformer-mit-b5")
