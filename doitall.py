@@ -134,6 +134,8 @@ def inference_deadwood(input_tif: str):
 
     # preferably use GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # use only one GPU
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
     # model with three input channels (RGB)
     model = UNet(
