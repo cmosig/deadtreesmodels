@@ -22,7 +22,7 @@ from deadwood.unet_model import UNet
 
 TCD_RESOLUTION = 0.1  # m -> tree crown detection only works as 10cm
 TCD_THRESHOLD = 200
-DEADWOOD_THRESHOLD = 0.9
+DEADWOOD_THRESHOLD = 0.8
 DEADWOOD_MODEL_PATH = "./model/model.safetensors"
 
 TEMP_DIR = "temp"
@@ -119,7 +119,7 @@ def get_utm_string_from_latlon(lat, lon):
     return f"EPSG:{utm_code}"
 
 
-def inference_deadwood(input_tif: str):
+def inference_deadwood(input_tif: str, write_energy_map: bool = False):
     """
     gets path to tif file and returns polygons of deadwood in the CRS of the tif
     """
@@ -128,7 +128,7 @@ def inference_deadwood(input_tif: str):
 
     loader_args = {
         "batch_size": 1,
-        "num_workers": 0,
+        "num_workers": 1,
         "pin_memory": True,
         "shuffle": False,
     }
@@ -178,12 +178,16 @@ def inference_deadwood(input_tif: str):
             outimage[miny:maxy, minx:maxx] = output[0][0].cpu().numpy()
 
     # threshold the output image
-    outimage = (outimage > DEADWOOD_THRESHOLD).astype(np.uint8)
+    # store the output as enegy_map.tif
+    # print(f"outimage shape: {outimage.shape}")
+    pred_mask = (outimage > DEADWOOD_THRESHOLD).astype(np.uint8)
 
     # get polygons from mask
-    polygons = mask_to_polygons(outimage, dataset.image_src)
-
-    return polygons
+    polygons = mask_to_polygons(pred_mask, dataset.image_src)
+    if write_energy_map:
+        return outimage, polygons
+    else:
+        return polygons
 
 
 def inference_forestcover(input_tif: str):
@@ -209,4 +213,15 @@ def inference_forestcover(input_tif: str):
 
 
 def save_poly(filename, poly, crs):
-    gpd.GeoDataFrame(dict(geometry=poly), crs=crs).to_file(filename)
+    """
+    Save polygons to a GeoJSON file.
+    
+    Args:
+        filename (str): Output filename (should end in .geojson)
+        poly (list): List of shapely polygons
+        crs: Coordinate reference system
+    """
+    # Create GeoDataFrame from the polygons
+    gdf = gpd.GeoDataFrame(geometry=poly, crs=crs)
+    # Save to GeoJSON format
+    gdf.to_file(filename)

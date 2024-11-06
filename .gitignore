@@ -5,3 +5,4 @@ data/*
 model/*
 temp/*
 *.ipynb
+settings.py

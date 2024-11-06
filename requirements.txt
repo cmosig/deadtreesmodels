@@ -7,4 +7,9 @@ utm
 scikit-learn
 matplotlib
 safetensors
-cv2
+opencv-python
+requests
+supabase
+leafmap
+xarray-leaflet
+localtileserver
