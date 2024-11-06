@@ -4,5 +4,5 @@ venv/*
 data/*
 model/*
 temp/*
-*.ipynb
+# *.ipynb
 settings.py
