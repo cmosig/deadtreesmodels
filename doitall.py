@@ -1,6 +1,6 @@
 import os
 
-
+from json import loads, dumps
 import geopandas as gpd
 import numpy as np
 import rasterio
@@ -12,11 +12,12 @@ import cv2
 from safetensors.torch import load_model
 from shapely.affinity import affine_transform, translate
 from shapely.geometry import Polygon
+from shapely.geometry import mapping
 
 # from tcd.tcd_pipeline.pipeline import Pipeline
 from torch.utils.data import DataLoader
 from torchvision.transforms.functional import crop
-
+from shapely.geometry import MultiPolygon
 from deadwood.InferenceDataset import InferenceDataset
 from deadwood.unet_model import UNet
 
@@ -119,7 +120,7 @@ def get_utm_string_from_latlon(lat, lon):
     return f"EPSG:{utm_code}"
 
 
-def inference_deadwood(input_tif: str, write_energy_map: bool = False):
+def inference_deadwood(input_tif: str, return_energy_map: bool = False):
     """
     gets path to tif file and returns polygons of deadwood in the CRS of the tif
     """
@@ -184,7 +185,7 @@ def inference_deadwood(input_tif: str, write_energy_map: bool = False):
 
     # get polygons from mask
     polygons = mask_to_polygons(pred_mask, dataset.image_src)
-    if write_energy_map:
+    if return_energy_map:
         return outimage, polygons
     else:
         return polygons
@@ -215,7 +216,7 @@ def inference_forestcover(input_tif: str):
 def save_poly(filename, poly, crs):
     """
     Save polygons to a GeoJSON file.
-    
+
     Args:
         filename (str): Output filename (should end in .geojson)
         poly (list): List of shapely polygons
@@ -225,3 +226,66 @@ def save_poly(filename, poly, crs):
     gdf = gpd.GeoDataFrame(geometry=poly, crs=crs)
     # Save to GeoJSON format
     gdf.to_file(filename)
+
+
+def transform_mask(polygons, image_path):
+    """
+    Transform polygons to the CRS of the image
+    """
+    with rasterio.open(image_path) as src:
+        deadwood_gdf = gpd.GeoDataFrame(
+            geometry=polygons,
+            crs=src.crs,
+        )
+        deadwood_gdf = deadwood_gdf.to_crs("EPSG:4326")
+        geojson = loads(deadwood_gdf.geometry.to_json())
+
+        labels = {
+            "type": "MultiPolygon",
+            "coordinates": [
+                feature["geometry"]["coordinates"] for feature in geojson["features"]
+            ],
+        }
+    return labels
+
+
+def extract_bbox(image_path: str) -> dict:
+    """
+    Extract bounding box from raster file and return as GeoJSON MultiPolygon in EPSG:4326
+
+    Args:
+        image_path (str): Path to the raster file
+
+    Returns:
+        dict: GeoJSON MultiPolygon of the bounding box in WGS84 projection
+    """
+    with rasterio.open(image_path) as src:
+        bounds = src.bounds
+
+        # Create polygon from bounds
+        bbox_poly = Polygon(
+            [
+                [bounds.left, bounds.top],  # top-left
+                [bounds.right, bounds.top],  # top-right
+                [bounds.right, bounds.bottom],  # bottom-right
+                [bounds.left, bounds.bottom],  # bottom-left
+                [bounds.left, bounds.top],  # close the polygon
+            ]
+        )
+
+        # Convert to GeoDataFrame with source CRS
+        bbox_gdf = gpd.GeoDataFrame(geometry=[bbox_poly], crs=src.crs)
+
+        # Reproject to WGS84 if needed
+        if src.crs != "EPSG:4326":
+            bbox_gdf = bbox_gdf.to_crs("EPSG:4326")
+
+        # Convert coordinates to lists instead of tuples
+        coords = [list(coord) for coord in bbox_gdf.geometry.iloc[0].exterior.coords[:]]
+
+        # Convert to required MultiPolygon GeoJSON format
+        bbox_geojson = {
+            "type": "MultiPolygon",
+            "coordinates": [[coords]],
+        }
+    return bbox_geojson
