@@ -61,46 +61,58 @@ def reproject_to_10cm(input_tif, output_tif):
                           dst_crs=dst_crs,
                           resampling=Resampling.nearest)
 
-def merge_polygons(polygon: MultiPolygon, idx: int, add: bool, contours,
-                   hierarchy) -> MultiPolygon:
+
+def merge_polygons(contours, hierarchy) -> MultiPolygon:
     """
-    adapted from:
-    https://stackoverflow.com/a/75510437/8832008
-    polygon: Main polygon to which a new polygon is added
-    idx: Index of contour
-    add: If this contour should be added (True) or subtracted (False)
+    adapted from: https://stackoverflow.com/a/75510437/8832008
     """
 
-    next_idx = idx
-    while hierarchy[next_idx][0] >= 0:
+    # https://docs.opencv.org/4.x/d9/d8b/tutorial_py_contours_hierarchy.html
+    # hierarchy structure: [next, prev, first_child, parent]
+
+    def make_valid(polygon):
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        return polygon
+
+    polygons = []
+
+    count = 0
+
+    idx_extracted = set()
+
+    idx = 0
+    while idx != -1:
         # Get contour from global list of contours
-        contour = np.squeeze(contours[next_idx])
+        contour = np.squeeze(contours[idx])
+        idx_extracted.add(idx)
+        count += 1
 
         # cv2.findContours() sometimes returns a single point -> skip this case
         if len(contour) > 2:
             # Convert contour to shapely polygon
-            new_poly = Polygon(contour)
+            new_poly = make_valid(Polygon(contour))
 
-            # Not all polygons are shapely-valid (self intersection, etc.)
-            if not new_poly.is_valid:
-                # Convert invalid polygon to valid
-                new_poly = new_poly.buffer(0)
+            # check if there is a child
+            child_idx = hierarchy[idx][2]
+            if child_idx != -1:
+                # iterate over all children and remove them from the parent
+                while child_idx != -1:
+                    idx_extracted.add(child_idx)
+                    count += 1
+                    child = np.squeeze(contours[child_idx])
+                    if len(child) > 2:
+                        child = make_valid(Polygon(child))
+                        new_poly = new_poly.difference(child)
+                    child_idx = hierarchy[child_idx][0]
 
-            # Merge new polygon with the main one
-            if add: polygon = polygon.union(new_poly)
-            else: polygon = polygon.difference(new_poly)
-
-        # Check if current polygon has a child
-        child_idx = hierarchy[next_idx][2]
-        if child_idx >= 0:
-            # Call this function recursively, negate `add` parameter
-            polygon = merge_polygons(polygon, child_idx, not add, contours,
-                                     hierarchy)
+        # save poly
+        polygons.append(new_poly)
 
         # Check if there is some next polygon at the same hierarchy level
-        next_idx = hierarchy[next_idx][0]
+        idx = hierarchy[idx][0]
 
-    return polygon
+    return polygons
 
 
 def mask_to_polygons(mask, dataset_reader):
@@ -115,7 +127,7 @@ def mask_to_polygons(mask, dataset_reader):
 
     hierarchy = hierarchy[0]
 
-    poly = [merge_polygons(MultiPolygon(), 0, True, contours, hierarchy)]
+    poly = merge_polygons(contours, hierarchy)
 
     # affine transform from pixel to world coordinates
     transform = dataset_reader.transform
