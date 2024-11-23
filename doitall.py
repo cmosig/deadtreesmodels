@@ -1,12 +1,12 @@
 import os
 
-import geopands as gpd
+import geopandas as gpd
 import numpy as np
 import rasterio
 import utm
 from safetensors.torch import load_model
 from shapely.affinity import affine_transform, translate
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 from tcd_pipeline.pipeline import Pipeline
 from torch.utils.data import DataLoader
 from torchvision.transforms.functional import crop
@@ -62,33 +62,61 @@ def reproject_to_10cm(input_tif, output_tif):
                           resampling=Resampling.nearest)
 
 
+def merge_polygons(polygon: MultiPolygon, idx: int, add: bool, contours,
+                   hierarchy) -> MultiPolygon:
+    """
+    https://stackoverflow.com/a/75510437/8832008
+    polygon: Main polygon to which a new polygon is added
+    idx: Index of contour
+    add: If this contour should be added (True) or subtracted (False)
+    """
+
+    # Get contour from global list of contours
+    contour = np.squeeze(contours[idx])
+
+    # cv2.findContours() sometimes returns a single point -> skip this case
+    if len(contour) > 2:
+        # Convert contour to shapely polygon
+        new_poly = Polygon(contour)
+
+        # Not all polygons are shapely-valid (self intersection, etc.)
+        if not new_poly.is_valid:
+            # Convert invalid polygon to valid
+            new_poly = new_poly.buffer(0)
+
+        # Merge new polygon with the main one
+        if add: polygon = polygon.union(new_poly)
+        else: polygon = polygon.difference(new_poly)
+
+    # Check if current polygon has a child
+    child_idx = hierarchy[idx][2]
+    if child_idx >= 0:
+        # Call this function recursively, negate `add` parameter
+        polygon = merge_polygons(polygon, child_idx, not add, contours,
+                                 hierarchy)
+
+    # Check if there is some next polygon at the same hierarchy level
+    next_idx = hierarchy[idx][0]
+    if next_idx >= 0:
+        # Call this function recursively
+        polygon = merge_polygons(polygon, next_idx, add, contours, hierarchy)
+
+    return polygon
+
+
 def mask_to_polygons(mask, dataset_reader):
     """
     this function takes a numpy mask as input and returns a list of polygons
     that are in the crs of the passed dataset reader
     """
 
-    padding = 10
+    contours, hierarchy = cv2.findContours(mask.astype(np.uint8).copy(),
+                                           mode=cv2.RETR_CCOMP,
+                                           method=cv2.CHAIN_APPROX_SIMPLE)
 
-    # add padding for cv to work properly
-    mask_padded = np.pad(mask[0], padding)
+    hierarchy = hierarchy[0]
 
-    contours, _ = cv2.findContours(mask.astype(np.uint8).copy(),
-                                   mode=cv2.RETR_EXTERNAL,
-                                   method=cv2.CHAIN_APPROX_SIMPLE)
-    poly = []
-    for p in contours:
-        if len(p) == 1:
-            continue
-
-        p = p.squeeze()
-        p = np.concatenate([p, p[:1]], axis=0)
-        p = Polygon(p)
-
-        # reverse padding effect
-        p = translate(p, xoff=-padding, yoff=-padding)
-
-        poly.append(p)
+    poly = [merge_polygons(MultiPolygon(), 0, True, contours, hierarchy)]
 
     # affine transform from pixel to world coordinates
     transform = dataset_reader.transform
