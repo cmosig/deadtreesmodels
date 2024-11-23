@@ -106,8 +106,8 @@ def merge_polygons(contours, hierarchy) -> MultiPolygon:
                         new_poly = new_poly.difference(child)
                     child_idx = hierarchy[child_idx][0]
 
-        # save poly
-        polygons.append(new_poly)
+            # save poly
+            polygons.append(new_poly)
 
         # Check if there is some next polygon at the same hierarchy level
         idx = hierarchy[idx][0]
