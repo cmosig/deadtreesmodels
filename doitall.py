@@ -61,45 +61,44 @@ def reproject_to_10cm(input_tif, output_tif):
                           dst_crs=dst_crs,
                           resampling=Resampling.nearest)
 
-
 def merge_polygons(polygon: MultiPolygon, idx: int, add: bool, contours,
                    hierarchy) -> MultiPolygon:
     """
+    adapted from:
     https://stackoverflow.com/a/75510437/8832008
     polygon: Main polygon to which a new polygon is added
     idx: Index of contour
     add: If this contour should be added (True) or subtracted (False)
     """
 
-    # Get contour from global list of contours
-    contour = np.squeeze(contours[idx])
+    next_idx = idx
+    while hierarchy[next_idx][0] >= 0:
+        # Get contour from global list of contours
+        contour = np.squeeze(contours[next_idx])
 
-    # cv2.findContours() sometimes returns a single point -> skip this case
-    if len(contour) > 2:
-        # Convert contour to shapely polygon
-        new_poly = Polygon(contour)
+        # cv2.findContours() sometimes returns a single point -> skip this case
+        if len(contour) > 2:
+            # Convert contour to shapely polygon
+            new_poly = Polygon(contour)
 
-        # Not all polygons are shapely-valid (self intersection, etc.)
-        if not new_poly.is_valid:
-            # Convert invalid polygon to valid
-            new_poly = new_poly.buffer(0)
+            # Not all polygons are shapely-valid (self intersection, etc.)
+            if not new_poly.is_valid:
+                # Convert invalid polygon to valid
+                new_poly = new_poly.buffer(0)
 
-        # Merge new polygon with the main one
-        if add: polygon = polygon.union(new_poly)
-        else: polygon = polygon.difference(new_poly)
+            # Merge new polygon with the main one
+            if add: polygon = polygon.union(new_poly)
+            else: polygon = polygon.difference(new_poly)
 
-    # Check if current polygon has a child
-    child_idx = hierarchy[idx][2]
-    if child_idx >= 0:
-        # Call this function recursively, negate `add` parameter
-        polygon = merge_polygons(polygon, child_idx, not add, contours,
-                                 hierarchy)
+        # Check if current polygon has a child
+        child_idx = hierarchy[next_idx][2]
+        if child_idx >= 0:
+            # Call this function recursively, negate `add` parameter
+            polygon = merge_polygons(polygon, child_idx, not add, contours,
+                                     hierarchy)
 
-    # Check if there is some next polygon at the same hierarchy level
-    next_idx = hierarchy[idx][0]
-    if next_idx >= 0:
-        # Call this function recursively
-        polygon = merge_polygons(polygon, next_idx, add, contours, hierarchy)
+        # Check if there is some next polygon at the same hierarchy level
+        next_idx = hierarchy[next_idx][0]
 
     return polygon
 
