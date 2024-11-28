@@ -24,6 +24,8 @@ DEADWOOD_MODEL_PATH = "deadwood_model.pth"
 TEMP_DIR = "temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+DEBUG = False
+
 
 def reproject_to_10cm(input_tif, output_tif):
     """takes an input tif file and reprojects it to 10cm resolution and writes it to output_tif"""
@@ -77,34 +79,35 @@ def merge_polygons(contours, hierarchy) -> MultiPolygon:
 
     polygons = []
 
-    count = 0
-
-    idx_extracted = set()
+    if DEBUG:
+        pbar = tqdm(total=len(contours))
 
     idx = 0
     while idx != -1:
         # Get contour from global list of contours
         contour = np.squeeze(contours[idx])
-        idx_extracted.add(idx)
-        count += 1
+
+        if DEBUG:
+            pbar.update(1)
 
         # cv2.findContours() sometimes returns a single point -> skip this case
         if len(contour) > 2:
             # Convert contour to shapely polygon
-            new_poly = make_valid(Polygon(contour))
+            holes = []
 
             # check if there is a child
             child_idx = hierarchy[idx][2]
             if child_idx != -1:
-                # iterate over all children and remove them from the parent
+                # iterate over all children and add them as holes
                 while child_idx != -1:
-                    idx_extracted.add(child_idx)
-                    count += 1
+                    if DEBUG:
+                        pbar.update(1)
                     child = np.squeeze(contours[child_idx])
                     if len(child) > 2:
-                        child = make_valid(Polygon(child))
-                        new_poly = new_poly.difference(child)
+                        holes.append(child)
                     child_idx = hierarchy[child_idx][0]
+
+            new_poly = Polygon(shell=contour, holes=holes)
 
             # save poly
             polygons.append(new_poly)
