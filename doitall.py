@@ -1,4 +1,5 @@
 import os
+from tqdm import tqdm
 
 import geopandas as gpd
 import numpy as np
@@ -10,16 +11,20 @@ from shapely.geometry import Polygon, MultiPolygon
 from tcd_pipeline.pipeline import Pipeline
 from torch.utils.data import DataLoader
 from torchvision.transforms.functional import crop
+import cv2
 
 from InferenceDataset import InferenceDataset
 from unet_model import UNet
+import torch
+from torch import nn
 
 TCD_RESOLUTION = 0.1  # m -> tree crown detection only works as 10cm
 TCD_THRESHOLD = 200
 
 DEADWOOD_THRESHOLD = 0.9
 
-DEADWOOD_MODEL_PATH = "deadwood_model.pth"
+DEADWOOD_MODEL_PATH = "/net/scratch/jmoehring/checkpoints/3d_18k_100e_vanilla_tversky_a01b09g2/fold_1_epoch_99/model.safetensors"
+# DEADWOOD_MODEL_PATH = "/net/scratch/cmosig/model.safetensors"
 
 TEMP_DIR = "temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -240,4 +245,4 @@ def inference_forestcover(input_tif: str):
 
 
 def save_poly(filename, poly, crs):
-    gpd.GeoDataFrame(dict(geometry=poly), crs=crs).to_file(filename)
+    gpd.GeoDataFrame(geometry=poly, crs=crs).to_file(filename)
