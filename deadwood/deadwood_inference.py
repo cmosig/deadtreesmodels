@@ -124,6 +124,8 @@ class DeadwoodInference():
         # get polygons from mask
         polygons = mask_to_polygons(outimage, dataset.image_src)
 
+        polygons = filter_polygons_by_area(polygons, self.config["minimum_polygon_area"])
+
         # reproject the polygons back into the crs of the input tif
         polygons = reproject_polygons(polygons, dataset.image_src.crs,
                            rasterio.open(input_tif).crs)

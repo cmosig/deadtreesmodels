@@ -153,3 +153,26 @@ def reproject_polygons(polygons, src_crs, dst_src):
         return shapely.from_geojson([json.dumps(x) for x in rep])
     else:
         return shapely.from_geojson(json.dumps(rep))
+
+
+def filter_polygons_by_area(polygons, min_area):
+    """
+    filters the polygons by the minimum area
+    """
+    filtered = []
+    for p in polygons:
+
+        exterior = p.exterior
+
+        # Filter holes (interior rings) by area
+        filtered_holes = [hole for hole in p.interiors
+                         if Polygon(hole).area >= min_area]
+
+        # Create new polygon with filtered holes
+        filtered_p = Polygon(exterior, filtered_holes)
+
+        if filtered_p.area >= min_area:
+            filtered.append(p)
+
+    print(f"Filtered {len(polygons) - len(filtered)} polygons by minimum area of {min_area}m2.")
+    return filtered
