@@ -18,12 +18,15 @@ from unet_model import UNet
 import torch
 from torch import nn
 
+import segmentation_models_pytorch as smp
+
 TCD_RESOLUTION = 0.1  # m -> tree crown detection only works as 10cm
 TCD_THRESHOLD = 200
 
-DEADWOOD_THRESHOLD = 0.9
+DEADWOOD_THRESHOLD = 0.5
 
-DEADWOOD_MODEL_PATH = "/net/scratch/jmoehring/checkpoints/3d_18k_100e_vanilla_tversky_a01b09g2/fold_1_epoch_99/model.safetensors"
+# DEADWOOD_MODEL_PATH = "/net/scratch/jmoehring/checkpoints/3d_18k_100e_vanilla_tversky_a01b09g2/fold_1_epoch_99/model.safetensors"
+DEADWOOD_MODEL_PATH = "/net/scratch/cmosig/experiment_dir_deadwood_segmentation/segformer_b5_oversample_newdata/fold_0_epoch_74/model.safetensors"
 # DEADWOOD_MODEL_PATH = "/net/scratch/cmosig/model.safetensors"
 
 TEMP_DIR = "temp"
@@ -154,7 +157,29 @@ def get_utm_string_from_latlon(lat, lon):
     return f"EPSG:{utm_code}"
 
 
-def inference_deadwood(input_tif: str):
+def load_deadwood_model():
+    # preferably use GPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # model with three input channels (RGB)
+    model = smp.Unet(
+        encoder_name="mit_b5",
+        encoder_weights="imagenet",
+        in_channels=3,
+        classes=1,
+    ).to(memory_format=torch.channels_last)
+
+    model = torch.compile(model)
+    load_model(model, DEADWOOD_MODEL_PATH)
+    model = nn.DataParallel(model)
+    model = model.to(memory_format=torch.channels_last, device=device)
+
+    model.eval()
+
+    return model
+
+
+def inference_deadwood(input_tif: str, model):
     """
     gets path to tif file and returns polygons of deadwood in the CRS of the tif
     """
@@ -173,18 +198,6 @@ def inference_deadwood(input_tif: str):
 
     # preferably use GPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # model with three input channels (RGB)
-    model = UNet(
-        n_channels=3,
-        n_classes=1,
-    ).to(memory_format=torch.channels_last)
-
-    load_model(model, DEADWOOD_MODEL_PATH)
-    model = nn.DataParallel(model)
-    model = model.to(memory_format=torch.channels_last, device=device)
-
-    model.eval()
 
     outimage = np.zeros((dataset.height, dataset.width))
     for images, cropped_windows in tqdm(inference_loader):
@@ -214,6 +227,12 @@ def inference_deadwood(input_tif: str):
 
     # threshold the output image
     outimage = (outimage > DEADWOOD_THRESHOLD).astype(np.uint8)
+
+    # get nodata mask
+    nodata_mask = dataset.image_src.read_masks()[0] == dataset.image_src.nodata
+
+    # mask out nodata in predictions
+    outimage[nodata_mask] = 0
 
     # get polygons from mask
     polygons = mask_to_polygons(outimage, dataset.image_src)
