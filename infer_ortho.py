@@ -1,23 +1,9 @@
-from doitall import *
-import os
+from deadwood.deadwood_inference import DeadwoodInference
 import rasterio
-import sys
+from common.common import *
 
-filename = sys.argv[1]
+filename = "/scratch/cmosig/test_image_seg/20211001_FVA_Walddrohnen_Totholz_3_ortho.tif"
 
-model = load_deadwood_model()
-
-for f in open(filename).readlines():
-    f = f.strip()
-    outpath = f.split("/")[-1].replace(".tif", ".gpkg")
-
-    # skip if exists
-    if os.path.exists(outpath):
-        continue
-
-    try:
-        poly = inference_deadwood(f, model)
-    except Exception as e:
-        print(f, e)
-        continue
-    save_poly(outpath, poly, rasterio.open(f).crs) 
+deadwodinference = DeadwoodInference(config_path="deadwood_inference_config.json")
+polygons = deadwodinference.inference_deadwood(filename)
+save_poly("deadwood_test.gpkg", polygons, crs=rasterio.open(filename).crs)
