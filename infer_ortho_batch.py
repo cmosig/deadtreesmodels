@@ -15,6 +15,7 @@ with open(pathlist) as f:
 
     for filename in files:
         print("processing", filename)
+        f = filename.strip()
 
         outpath = f.split("/")[-1].replace(".tif", "_prediction.gpkg")
 
@@ -22,7 +23,6 @@ with open(pathlist) as f:
             print("skipping", filename)
             continue
 
-        f = filename.strip()
 
         polygons = deadwodinference.inference_deadwood(f)
         save_poly(outpath,
