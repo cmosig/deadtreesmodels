@@ -108,7 +108,6 @@ class DeadwoodInference():
                 # save tile to output array
                 outimage[miny:maxy, minx:maxx] = output_tile[0].cpu().numpy()
 
-        vrt_src.close()
 
         # threshold the output image
         outimage = (outimage
@@ -123,6 +122,9 @@ class DeadwoodInference():
 
         # get polygons from mask
         polygons = mask_to_polygons(outimage, dataset.image_src)
+
+        # close the vrt
+        vrt_src.close()
 
         polygons = filter_polygons_by_area(polygons, self.config["minimum_polygon_area"])
 
