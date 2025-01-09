@@ -6,12 +6,11 @@ from torchvision.transforms import transforms
 
 class InferenceDataset(Dataset):
 
-    def __init__(self, image_path, tile_size=512, padding=56):
+    def __init__(self, image_src, tile_size=512, padding=56):
         super(InferenceDataset, self).__init__()
-        self.image_path = image_path
         self.tile_size = tile_size
         self.padding = padding
-        self.image_src = rasterio.open(self.image_path)
+        self.image_src = image_src
         self.width = self.image_src.width
         self.height = self.image_src.height
 
@@ -31,7 +30,6 @@ class InferenceDataset(Dataset):
         return len(self.cropped_windows)
 
     def __getitem__(self, idx):
-        image_src = rasterio.open(self.image_path)
         cropped_window = self.cropped_windows[idx]
         cropped_window_dict = {
             "col_off": cropped_window.col_off,
@@ -45,7 +43,7 @@ class InferenceDataset(Dataset):
             cropped_window.width + (2 * self.padding),
             cropped_window.height + (2 * self.padding),
         )
-        image = image_src.read((1, 2, 3), window=inference_window)
+        image = self.image_src.read((1, 2, 3), window=inference_window)
 
         # Reshape the image tensor to have 3 channels
         image = image.transpose(1, 2, 0)

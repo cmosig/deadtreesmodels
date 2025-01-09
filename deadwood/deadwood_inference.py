@@ -58,12 +58,12 @@ class DeadwoodInference():
         gets path to tif file and returns polygons of deadwood in the CRS of the tif
         """
 
-        # will always return a memory file, also when not reprojecting
-        reprojected_mem_file = image_reprojector(
+        # will always return a vrt, even when not reprojecting
+        vrt_src = image_reprojector(
             input_tif,
             min_res=self.config["deadwood_minimum_inference_resolution"])
 
-        dataset = InferenceDataset(image_path=reprojected_mem_file,
+        dataset = InferenceDataset(image_src=vrt_src,
                                    tile_size=1024,
                                    padding=256)
 
@@ -108,7 +108,7 @@ class DeadwoodInference():
                 # save tile to output array
                 outimage[miny:maxy, minx:maxx] = output_tile[0].cpu().numpy()
 
-        reprojected_mem_file.close()
+        vrt_src.close()
 
         # threshold the output image
         outimage = (outimage
