@@ -133,11 +133,10 @@ class DeadwoodInference():
                     > self.config["probabilty_threshold"]).astype(np.uint8)
 
         # get nodata mask
-        nodata_mask = dataset.image_src.read_masks(
-        )[0] == dataset.image_src.nodata
+        nodata_mask = dataset.image_src.read_masks().any(axis=0)
 
         # mask out nodata in predictions
-        outimage[nodata_mask] = 0
+        outimage[~nodata_mask] = 0
 
         # get polygons from mask
         polygons = mask_to_polygons(outimage, dataset.image_src)
