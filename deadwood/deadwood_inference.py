@@ -16,6 +16,9 @@ class DeadwoodInference():
 
     def __init__(self, config_path):
 
+        # set float32 matmul precision for higher performance
+        torch.set_float32_matmul_precision('high')
+
         with open(config_path, 'r') as f:
             self.config = json.load(f)
 
@@ -78,17 +81,32 @@ class DeadwoodInference():
         outimage = np.zeros((dataset.height, dataset.width), dtype=np.float32)
         for images, cropped_windows in tqdm(inference_loader,
                                             desc="inference"):
+
             images = images.to(device=self.device,
                                memory_format=torch.channels_last)
 
             output = None
             with torch.no_grad():
-                output = self.model(images)
+
+                # if the the batch size is smaller than the configured batch size, apply padding
+                if images.shape[0] < self.config["batch_size"]:
+                    pad = torch.zeros(
+                        (self.config["batch_size"], 3, 1024, 1024),
+                        dtype=torch.float32)
+                    pad[:images.shape[0]] = images
+                    # move to device
+                    pad = pad.to(device=self.device,
+                                 memory_format=torch.channels_last)
+                    output = self.model(pad)
+                    output = output[:images.shape[0]]
+                else:
+                    output = self.model(images)
+
                 output = torch.sigmoid(output)
 
             # go through batch and save to output
             for i in range(output.shape[0]):
-                output_tile = output[i]
+                output_tile = output[i].cpu()
 
                 # crop tensor by dataset padding
                 output_tile = crop(
@@ -106,9 +124,9 @@ class DeadwoodInference():
                 maxy = miny + cropped_windows["width"][i]
 
                 # save tile to output array
-                outimage[miny:maxy, minx:maxx] = output_tile[0].cpu().numpy()
+                outimage[miny:maxy, minx:maxx] = output_tile[0].numpy()
 
-        print("Postprocessing mask into polygons etc....")
+        print("Postprocessing mask into polygons and filtering....")
 
         # threshold the output image
         outimage = (outimage
