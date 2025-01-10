@@ -108,6 +108,7 @@ class DeadwoodInference():
                 # save tile to output array
                 outimage[miny:maxy, minx:maxx] = output_tile[0].cpu().numpy()
 
+        print("Postprocessing mask into polygons etc....")
 
         # threshold the output image
         outimage = (outimage
@@ -126,10 +127,13 @@ class DeadwoodInference():
         # close the vrt
         vrt_src.close()
 
-        polygons = filter_polygons_by_area(polygons, self.config["minimum_polygon_area"])
+        polygons = filter_polygons_by_area(polygons,
+                                           self.config["minimum_polygon_area"])
 
         # reproject the polygons back into the crs of the input tif
         polygons = reproject_polygons(polygons, dataset.image_src.crs,
-                           rasterio.open(input_tif).crs)
+                                      rasterio.open(input_tif).crs)
+
+        print("done")
 
         return polygons
