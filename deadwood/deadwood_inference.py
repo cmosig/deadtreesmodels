@@ -14,18 +14,19 @@ import numpy as np
 
 
 class DeadwoodInference:
-	def __init__(self, config_path):
+	def __init__(self, config_path: str, model_path: str):
 		with open(config_path, 'r') as f:
 			self.config = json.load(f)
 
+		self.model_path = model_path
 		self.model = None
 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 		self.load_model()
 
 	def get_cache_path(self):
-		model_path = Path(self.config['model_path'])
-		return model_path.parent / f"{self.config['model_name']}_pretrained.pt"
+		model_path = Path(self.model_path)
+		return model_path.parent / f'{self.config["model_name"]}_pretrained.pt'
 
 	def load_model(self):
 		if 'segformer_b5' not in self.config['model_name']:
@@ -57,7 +58,7 @@ class DeadwoodInference:
 
 		# Apply final model preparations
 		model = torch.compile(model)
-		safetensors.torch.load_model(model, self.config['model_path'])
+		safetensors.torch.load_model(model, self.model_path)
 		model = model.to(memory_format=torch.channels_last, device=self.device)
 		model.eval()
 
