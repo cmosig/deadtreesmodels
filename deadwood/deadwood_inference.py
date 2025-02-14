@@ -1,16 +1,16 @@
-import rasterio
 import torch
+import rasterio
 from torchvision.transforms.functional import crop
 import json
-from os.path import join
 import safetensors.torch
-from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygons, image_reprojector
-from .InferenceDataset import InferenceDataset
 import segmentation_models_pytorch as smp
 from pathlib import Path
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
+
+from .InferenceDataset import InferenceDataset
+from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygons, image_reprojector
 
 
 class DeadwoodInference:
