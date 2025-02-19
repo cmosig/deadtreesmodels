@@ -127,7 +127,7 @@ def image_reprojector(input_tif, min_res=0, max_res=1e9):
             *dataset.bounds,
             resolution=target_res)
 
-    vrt = WarpedVRT(dataset, crs=utm_crs, transform=default_transform, width=width, height=height, dtype="uint8")
+    vrt = WarpedVRT(dataset, crs=utm_crs, transform=default_transform, width=width, height=height, dtype="uint8", nodata=0)
 
     return vrt
 

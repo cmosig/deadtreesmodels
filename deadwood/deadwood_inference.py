@@ -123,6 +123,33 @@ class DeadwoodInference():
                 miny = cropped_windows["row_off"][i]
                 maxy = miny + cropped_windows["width"][i]
 
+                # clip to positive values when writing and also to the image size
+                diff_minx = 0
+                if minx < 0:
+                    diff_minx = abs(minx)
+                    minx = 0
+
+                diff_miny = 0
+                if miny < 0:
+                    diff_miny = abs(miny)
+                    miny = 0
+
+                diff_maxx = 0
+                if maxx > outimage.shape[1]:
+                    diff_maxx = maxx - outimage.shape[1]
+                    maxx = outimage.shape[1]
+
+                diff_maxy = 0
+                if maxy > outimage.shape[0]:
+                    diff_maxy = maxy - outimage.shape[0]
+                    maxy = outimage.shape[0]
+
+                # crop output tile to the correct size
+                output_tile = output_tile[:, diff_miny:output_tile.shape[1] -
+                                          diff_maxy,
+                                          diff_minx:output_tile.shape[2] -
+                                          diff_maxx]
+
                 # save tile to output array
                 outimage[miny:maxy, minx:maxx] = output_tile[0].numpy()
 
@@ -133,7 +160,7 @@ class DeadwoodInference():
                     > self.config["probabilty_threshold"]).astype(np.uint8)
 
         # get nodata mask
-        nodata_mask = dataset.image_src.read_masks().any(axis=0)
+        nodata_mask = (vrt_src.dataset_mask() == 255)
 
         # mask out nodata in predictions
         outimage[~nodata_mask] = 0
