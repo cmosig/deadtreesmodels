@@ -3,6 +3,7 @@ from rasterio import windows
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 import torch
+import numpy as np
 
 
 class InferenceDataset(Dataset):
@@ -18,10 +19,10 @@ class InferenceDataset(Dataset):
 		self.cropped_windows = [
 			window
 			for window in get_windows(
-				xmin=self.padding,
-				ymin=self.padding,
-				xmax=self.width - self.padding,
-				ymax=self.height - self.padding,
+				xmin=-self.padding,
+				ymin=-self.padding,
+				xmax=self.width + self.padding,
+				ymax=self.height + self.padding,
 				tile_width=self.tile_size - (padding * 2),
 				tile_height=self.tile_size - (padding * 2),
 				overlap=0,
@@ -47,6 +48,25 @@ class InferenceDataset(Dataset):
 			cropped_window.height + (2 * self.padding),
 		)
 		image = image_src.read((1, 2, 3), window=inference_window)
+
+		# enable boundless reads also for VRTs by adding padding of zeros if necessary
+		if image.shape[1] < self.tile_size or image.shape[2] < self.tile_size:
+			pad_left = 0 if inference_window.col_off >= 0 else abs(inference_window.col_off)
+			pad_right = self.tile_size - (pad_left + image.shape[2])
+
+			pad_top = 0 if inference_window.row_off >= 0 else abs(inference_window.row_off)
+			pad_bottom = self.tile_size - (pad_top + image.shape[1])
+
+			image = np.pad(
+				image,
+				(
+					(0, 0),
+					(pad_top, pad_bottom),
+					(pad_left, pad_right),
+				),
+				mode='constant',
+				constant_values=0,
+			)
 
 		# Reshape the image tensor to have 3 channels
 		image = image.transpose(1, 2, 0)

@@ -15,11 +15,15 @@ from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygo
 
 class DeadwoodInference:
 	def __init__(self, config_path: str, model_path: str):
+		torch.set_float32_matmul_precision('high')
+
 		with open(config_path, 'r') as f:
 			self.config = json.load(f)
 
 		self.model_path = model_path
 		self.model = None
+		# set float32 matmul precision for higher performance
+
 		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 		self.load_model()
@@ -90,12 +94,22 @@ class DeadwoodInference:
 
 			output = None
 			with torch.no_grad():
-				output = self.model(images)
+				# if the the batch size is smaller than the configured batch size, apply padding
+				if images.shape[0] < self.config['batch_size']:
+					pad = torch.zeros((self.config['batch_size'], 3, 1024, 1024), dtype=torch.float32)
+					pad[: images.shape[0]] = images
+					# move to device
+					pad = pad.to(device=self.device, memory_format=torch.channels_last)
+					output = self.model(pad)
+					output = output[: images.shape[0]]
+				else:
+					output = self.model(images)
+
 				output = torch.sigmoid(output)
 
 			# go through batch and save to output
 			for i in range(output.shape[0]):
-				output_tile = output[i]
+				output_tile = output[i].cpu()
 
 				# crop tensor by dataset padding
 				output_tile = crop(
@@ -112,10 +126,36 @@ class DeadwoodInference:
 				miny = cropped_windows['row_off'][i]
 				maxy = miny + cropped_windows['width'][i]
 
-				# save tile to output array
-				outimage[miny:maxy, minx:maxx] = output_tile[0].cpu().numpy()
+				# clip to positive values when writing and also to the image size
+				diff_minx = 0
+				if minx < 0:
+					diff_minx = abs(minx)
+					minx = 0
 
-		reprojected_mem_file.close()
+				diff_miny = 0
+				if miny < 0:
+					diff_miny = abs(miny)
+					miny = 0
+
+				diff_maxx = 0
+				if maxx > outimage.shape[1]:
+					diff_maxx = maxx - outimage.shape[1]
+					maxx = outimage.shape[1]
+
+				diff_maxy = 0
+				if maxy > outimage.shape[0]:
+					diff_maxy = maxy - outimage.shape[0]
+					maxy = outimage.shape[0]
+
+				# crop output tile to the correct size
+				output_tile = output_tile[
+					:, diff_miny : output_tile.shape[1] - diff_maxy, diff_minx : output_tile.shape[2] - diff_maxx
+				]
+
+				# save tile to output array
+				outimage[miny:maxy, minx:maxx] = output_tile[0].numpy()
+
+		print('Postprocessing mask into polygons and filtering....')
 
 		# threshold the output image
 		outimage = (outimage > self.config['probabilty_threshold']).astype(np.uint8)
@@ -124,17 +164,19 @@ class DeadwoodInference:
 		nodata_mask = dataset.image_src.read_masks()[0] == dataset.image_src.nodata
 
 		# mask out nodata in predictions
-		outimage[nodata_mask] = 0
+		outimage[~nodata_mask] = 0
 
 		# get polygons from mask
-		if outimage.sum() == 0:
-			return None
-
 		polygons = mask_to_polygons(outimage, dataset.image_src)
+
+		# close the vrt
+		dataset.image_src.close()
 
 		polygons = filter_polygons_by_area(polygons, self.config['minimum_polygon_area'])
 
 		# reproject the polygons back into the crs of the input tif
 		polygons = reproject_polygons(polygons, dataset.image_src.crs, rasterio.open(input_tif).crs)
+
+		print('done')
 
 		return polygons

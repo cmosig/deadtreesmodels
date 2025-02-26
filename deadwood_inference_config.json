@@ -1,11 +1,9 @@
 {
-  "config_name": "deadwood_default_14_Feb_2025",
-  "probabilty_threshold": 0.5,
-  "deadwood_minimum_inference_resolution": 0.05,
-  "model_name": "segformer_b5_full_epoch_100",
-  "device": "cuda",
-  "batch_size": 1,
-  "num_workers": 0,
-  "num_dataloader_workers": 2,
-  "minimum_polygon_area": 0.1
+    "config_name": "deadwood_default_08_Jan_2025",
+    "probabilty_threshold": 0.5,
+    "deadwood_minimum_inference_resolution": 0.05,
+    "model_name": "segformer_b5_fold_0_epoch_74",
+    "batch_size": 1,
+    "num_dataloader_workers": 1,
+    "minimum_polygon_area": 0.1
 }
