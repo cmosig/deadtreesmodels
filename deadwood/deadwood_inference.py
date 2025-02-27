@@ -25,7 +25,8 @@ class DeadwoodInference:
 
         self.model_path = model_path
         self.model = None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu")
 
         self.load_model()
 
