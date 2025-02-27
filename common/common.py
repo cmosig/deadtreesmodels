@@ -72,6 +72,10 @@ def mask_to_polygons(mask, dataset_reader):
                                            mode=cv2.RETR_CCOMP,
                                            method=cv2.CHAIN_APPROX_SIMPLE)
 
+    # if no contours are found, return empty list
+    if hierarchy is None or len(hierarchy) == 0:
+        return []
+
     hierarchy = hierarchy[0]
 
     poly = merge_polygons(contours, hierarchy)

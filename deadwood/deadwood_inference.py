@@ -16,6 +16,7 @@ from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygo
 
 class DeadwoodInference:
     
+
     def __init__(self, config_path: str, model_path: str):
 
         # set float32 matmul precision for higher performance
