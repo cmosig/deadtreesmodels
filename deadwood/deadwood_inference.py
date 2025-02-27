@@ -75,36 +75,46 @@ class DeadwoodInference:
         gets path to tif file and returns polygons of deadwood in the CRS of the tif
         """
 
-        # will always return a memory file, also when not reprojecting
+        # using memory file to avoid multiprocessing issues in workers
         reprojected_mem_file = image_reprojector(
             input_tif, min_res=self.config['deadwood_minimum_inference_resolution']
         )
 
+        # use memory file as input to inference dataset
         dataset = InferenceDataset(image_path=reprojected_mem_file, tile_size=1024, padding=256)
-        vrt_src = dataset.image_src  # Store reference to the image source
+
+        # get vrt source for later use
+        vrt_src = dataset.image_src
 
         loader_args = {
-            'batch_size': self.config['batch_size'],
-            'num_workers': self.config['num_dataloader_workers'],
-            'pin_memory': True,
-            'shuffle': False,
+            "batch_size": self.config["batch_size"],
+            "num_workers": self.config["num_dataloader_workers"],
+            "pin_memory": True,
+            "shuffle": False,
         }
         inference_loader = DataLoader(dataset, **loader_args)
 
         outimage = np.zeros((dataset.height, dataset.width), dtype=np.float32)
-        for images, cropped_windows in tqdm(inference_loader, desc='inference'):
-            images = images.to(device=self.device, memory_format=torch.channels_last)
+        for images, cropped_windows in tqdm(inference_loader,
+                                            desc="inference"):
+
+            images = images.to(device=self.device,
+                               memory_format=torch.channels_last)
 
             output = None
             with torch.no_grad():
+
                 # if the the batch size is smaller than the configured batch size, apply padding
-                if images.shape[0] < self.config['batch_size']:
-                    pad = torch.zeros((self.config['batch_size'], 3, 1024, 1024), dtype=torch.float32)
-                    pad[: images.shape[0]] = images
+                if images.shape[0] < self.config["batch_size"]:
+                    pad = torch.zeros(
+                        (self.config["batch_size"], 3, 1024, 1024),
+                        dtype=torch.float32)
+                    pad[:images.shape[0]] = images
                     # move to device
-                    pad = pad.to(device=self.device, memory_format=torch.channels_last)
+                    pad = pad.to(device=self.device,
+                                 memory_format=torch.channels_last)
                     output = self.model(pad)
-                    output = output[: images.shape[0]]
+                    output = output[:images.shape[0]]
                 else:
                     output = self.model(images)
 
@@ -124,10 +134,10 @@ class DeadwoodInference:
                 )
 
                 # derive min/max from cropped window
-                minx = cropped_windows['col_off'][i]
-                maxx = minx + cropped_windows['width'][i]
-                miny = cropped_windows['row_off'][i]
-                maxy = miny + cropped_windows['width'][i]
+                minx = cropped_windows["col_off"][i]
+                maxx = minx + cropped_windows["width"][i]
+                miny = cropped_windows["row_off"][i]
+                maxy = miny + cropped_windows["width"][i]
 
                 # clip to positive values when writing and also to the image size
                 diff_minx = 0
@@ -151,40 +161,39 @@ class DeadwoodInference:
                     maxy = outimage.shape[0]
 
                 # crop output tile to the correct size
-                output_tile = output_tile[
-                    :, diff_miny : output_tile.shape[1] - diff_maxy, diff_minx : output_tile.shape[2] - diff_maxx
-                ]
+                output_tile = output_tile[:, diff_miny:output_tile.shape[1] -
+                                          diff_maxy,
+                                          diff_minx:output_tile.shape[2] -
+                                          diff_maxx]
 
                 # save tile to output array
                 outimage[miny:maxy, minx:maxx] = output_tile[0].numpy()
 
-        print('Postprocessing mask into polygons and filtering....')
-
-        reprojected_mem_file.close()
+        print("Postprocessing mask into polygons and filtering....")
 
         # threshold the output image
-        outimage = (outimage > self.config['probabilty_threshold']).astype(np.uint8)
+        outimage = (outimage
+                    > self.config["probabilty_threshold"]).astype(np.uint8)
 
         # get nodata mask
-        nodata_mask = vrt_src.dataset_mask() == 255
+        nodata_mask = (vrt_src.dataset_mask() == 255)
 
         # mask out nodata in predictions
         outimage[~nodata_mask] = 0
 
         # get polygons from mask
-        if outimage.sum() == 0:
-            return None
-
-        polygons = mask_to_polygons(outimage, vrt_src)
+        polygons = mask_to_polygons(outimage, dataset.image_src)
 
         # close the vrt
         vrt_src.close()
 
-        polygons = filter_polygons_by_area(polygons, self.config['minimum_polygon_area'])
+        polygons = filter_polygons_by_area(polygons,
+                                           self.config["minimum_polygon_area"])
 
         # reproject the polygons back into the crs of the input tif
-        polygons = reproject_polygons(polygons, dataset.image_src.crs, rasterio.open(input_tif).crs)
+        polygons = reproject_polygons(polygons, dataset.image_src.crs,
+                                      rasterio.open(input_tif).crs)
 
-        print('done')
+        print("done")
 
         return polygons
