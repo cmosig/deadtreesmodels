@@ -17,14 +17,15 @@ from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygo
 class DeadwoodInference:
     
     def __init__(self, config_path: str, model_path: str):
+
         # set float32 matmul precision for higher performance
         torch.set_float32_matmul_precision('high')
 
         with open(config_path, 'r') as f:
             self.config = json.load(f)
 
-        self.model_path = model_path
         self.model = None
+        self.model_path = model_path
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
 
