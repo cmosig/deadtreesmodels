@@ -62,8 +62,8 @@ class DeadwoodInference:
                 torch.save(model.state_dict(), str(cache_path))
 
             # Disabled torch.compile due to Python 3.12.3 compatibility constraints. The feature is not supported in the current PyTorch version used in the TCD conda environment.
-            # model = torch.compile(model)
-            # safetensors.torch.load_model(model, self.model_path)
+            model = torch.compile(model)
+            safetensors.torch.load_model(model, self.model_path)
             model = model.to(memory_format=torch.channels_last, device=self.device)
             model.eval()
 
