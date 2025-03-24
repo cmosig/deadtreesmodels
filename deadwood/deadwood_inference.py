@@ -177,11 +177,12 @@ class DeadwoodInference:
         outimage = (outimage
                     > self.config["probabilty_threshold"]).astype(np.uint8)
 
-        # get nodata mask
-        nodata_mask = (vrt_src.dataset_mask() == 255)
+        # remove no data handling since its done in standardise_geotif, also caused errors like https://github.com/Deadwood-ai/deadtrees/issues/127
+		# get nodata mask
+        # nodata_mask = (vrt_src.dataset_mask() == 255)
 
         # mask out nodata in predictions
-        outimage[~nodata_mask] = 0
+        #outimage[~nodata_mask] = 0
 
         # get polygons from mask
         polygons = mask_to_polygons(outimage, dataset.image_src)
