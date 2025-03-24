@@ -9,7 +9,6 @@ import geopandas as gpd
 import rasterio
 import rasterio.warp
 import rasterio.enums
-from rasterio.vrt import WarpedVRT
 
 
 def get_utm_string_from_latlon(lat, lon):
@@ -127,9 +126,26 @@ def image_reprojector(input_tif, min_res=0, max_res=1e9):
             *dataset.bounds,
             resolution=target_res)
 
-    vrt = WarpedVRT(dataset, crs=utm_crs, transform=default_transform, width=width, height=height, dtype="uint8", nodata=0)
-
-    return vrt
+    kwargs = dataset.meta.copy()
+    kwargs.update({
+        "crs": utm_crs,
+        "transform": default_transform,
+        "width": width,
+        "height": height,
+    })
+    memfile = rasterio.io.MemoryFile()
+    with memfile.open(**kwargs) as dst:
+        for i in range(1, dataset.count + 1):
+            rasterio.warp.reproject(
+                source=rasterio.band(dataset, i),
+                destination=rasterio.band(dst, i),
+                src_transform=dataset.transform,
+                src_crs=dataset.crs,
+                dst_transform=default_transform,
+                dst_crs=utm_crs,
+                resampling=rasterio.enums.Resampling.bilinear,
+            )
+    return memfile
 
 
 def reproject_polygons(polygons, src_crs, dst_src):

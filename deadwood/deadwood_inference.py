@@ -3,18 +3,21 @@ from torchvision.transforms.functional import crop
 import json
 from os.path import join
 import safetensors.torch
-from common import *
-from .InferenceDataset import InferenceDataset
 import segmentation_models_pytorch as smp
 from pathlib import Path
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
+import rasterio
+
+from .InferenceDataset import InferenceDataset
+from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygons, image_reprojector
 
 
-class DeadwoodInference():
+class DeadwoodInference:
+    
 
-    def __init__(self, config_path):
+    def __init__(self, config_path: str, model_path: str):
 
         # set float32 matmul precision for higher performance
         torch.set_float32_matmul_precision('high')
@@ -23,37 +26,50 @@ class DeadwoodInference():
             self.config = json.load(f)
 
         self.model = None
+        self.model_path = model_path
         self.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu")
 
         self.load_model()
 
+    def get_cache_path(self):
+        model_path = Path(self.model_path)
+        return model_path.parent / f'{self.config["model_name"]}_pretrained.pt'
+
     def load_model(self):
-
         if "segformer_b5" in self.config["model_name"]:
-            model = smp.Unet(
-                encoder_name="mit_b5",
-                encoder_weights="imagenet",
-                in_channels=3,
-                classes=1,
-            ).to(memory_format=torch.channels_last)
+            cache_path = self.get_cache_path()
 
-            model = torch.compile(model)
-            safetensors.torch.load_model(
-                model,
-                join(str(Path(__file__).parent.parent), "data",
-                     self.config["model_name"] + ".safetensors"))
-            # model = nn.DataParallel(model)
-            model = model.to(memory_format=torch.channels_last,
-                             device=self.device)
+            # Try to load from cache first
+            if cache_path.exists():
+                model = smp.Unet(
+                    encoder_name="mit_b5",
+                    encoder_weights=None,  # Don't load pretrained weights
+                    in_channels=3,
+                    classes=1,
+                ).to(memory_format=torch.channels_last)
 
+                model.load_state_dict(torch.load(str(cache_path)))
+            else:
+                # Load with pretrained weights and cache
+                model = smp.Unet(
+                    encoder_name="mit_b5",
+                    encoder_weights="imagenet",
+                    in_channels=3,
+                    classes=1,
+                ).to(memory_format=torch.channels_last)
+
+                torch.save(model.state_dict(), str(cache_path))
+
+            # Disabled torch.compile due to Python 3.12.3 compatibility constraints. The feature is not supported in the current PyTorch version used in the TCD conda environment.
+            model = torch.compile(model, backend='aot_eager')
+            safetensors.torch.load_model(model, self.model_path)
+            model = model.to(memory_format=torch.channels_last, device=self.device)
             model.eval()
 
             self.model = model
-
         else:
-            print("Invalid model name: ", self.config["model_name"],
-                  "Exiting...")
+            print("Invalid model name: ", self.config["model_name"], "Exiting...")
             exit()
 
     def inference_deadwood(self, input_tif):
@@ -61,14 +77,16 @@ class DeadwoodInference():
         gets path to tif file and returns polygons of deadwood in the CRS of the tif
         """
 
-        # will always return a vrt, even when not reprojecting
-        vrt_src = image_reprojector(
-            input_tif,
-            min_res=self.config["deadwood_minimum_inference_resolution"])
+        # using memory file to avoid multiprocessing issues in workers
+        reprojected_mem_file = image_reprojector(
+            input_tif, min_res=self.config['deadwood_minimum_inference_resolution']
+        )
 
-        dataset = InferenceDataset(image_src=vrt_src,
-                                   tile_size=1024,
-                                   padding=256)
+        # use memory file as input to inference dataset
+        dataset = InferenceDataset(image_path=reprojected_mem_file, tile_size=1024, padding=256)
+
+        # get vrt source for later use
+        vrt_src = dataset.image_src
 
         loader_args = {
             "batch_size": self.config["batch_size"],
@@ -159,11 +177,12 @@ class DeadwoodInference():
         outimage = (outimage
                     > self.config["probabilty_threshold"]).astype(np.uint8)
 
-        # get nodata mask
-        nodata_mask = (vrt_src.dataset_mask() == 255)
+        # remove no data handling since its done in standardise_geotif, also caused errors like https://github.com/Deadwood-ai/deadtrees/issues/127
+		# get nodata mask
+        # nodata_mask = (vrt_src.dataset_mask() == 255)
 
         # mask out nodata in predictions
-        outimage[~nodata_mask] = 0
+        #outimage[~nodata_mask] = 0
 
         # get polygons from mask
         polygons = mask_to_polygons(outimage, dataset.image_src)
