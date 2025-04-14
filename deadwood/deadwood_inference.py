@@ -78,12 +78,12 @@ class DeadwoodInference:
         """
 
         # using memory file to avoid multiprocessing issues in workers
-        reprojected_mem_file = image_reprojector(
+        vrt_src = image_reprojector(
             input_tif, min_res=self.config['deadwood_minimum_inference_resolution']
         )
 
         # use memory file as input to inference dataset
-        dataset = InferenceDataset(image_path=reprojected_mem_file, tile_size=1024, padding=256)
+        dataset = InferenceDataset(image_src=vrt_src, tile_size=1024, padding=256)
 
         # get vrt source for later use
         vrt_src = dataset.image_src
@@ -174,15 +174,21 @@ class DeadwoodInference:
         print("Postprocessing mask into polygons and filtering....")
 
         # threshold the output image
-        outimage = (outimage
-                    > self.config["probabilty_threshold"]).astype(np.uint8)
+        outimage = (outimage > self.config["probabilty_threshold"]).astype(np.uint8)
 
-        # remove no data handling since its done in standardise_geotif, also caused errors like https://github.com/Deadwood-ai/deadtrees/issues/127
-		# get nodata mask
-        # nodata_mask = (vrt_src.dataset_mask() == 255)
+        # Get the dataset mask
+        nodata_mask = vrt_src.dataset_mask()
 
-        # mask out nodata in predictions
-        #outimage[~nodata_mask] = 0
+        # Only apply masking if the mask is standard (contains only 0 and 255)
+        unique_mask_values = np.unique(nodata_mask)
+        if len(unique_mask_values) <= 2 and (0 in unique_mask_values or 255 in unique_mask_values):
+            # Standard mask with 0 and 255 values - apply it
+            outimage = outimage * (nodata_mask / 255).astype(np.uint8)
+            # fixes issues like https://github.com/Deadwood-ai/deadtrees/issues/127 and https://github.com/Deadwood-ai/deadtrees/issues/187
+        else:
+            # Non-standard mask with values all over the place - skip masking
+            print("Non-standard mask detected with values:", unique_mask_values)
+            print("Skipping masking operation to avoid artifacts")
 
         # get polygons from mask
         polygons = mask_to_polygons(outimage, dataset.image_src)
