@@ -6,12 +6,11 @@ import numpy as np
 
 
 class InferenceDataset(Dataset):
-    def __init__(self, image_path, tile_size=512, padding=56):
+    def __init__(self, image_src, tile_size=512, padding=56):
         super(InferenceDataset, self).__init__()
         self.tile_size = tile_size
         self.padding = padding
-        self.image_path = image_path
-        self.image_src = rasterio.open(self.image_path)
+        self.image_src = image_src
         self.width = self.image_src.width
         self.height = self.image_src.height
 
