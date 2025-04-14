@@ -1,11 +1,17 @@
-geopandas==0.14.4
-numpy==2.2.1
-opencv_python_headless==4.10.0.84
-rasterio==1.4.3
-safetensors==0.5.2
-segmentation_models_pytorch==0.3.3
-Shapely==2.0.6
-torch==2.4.1
-torchvision==0.19.1
-tqdm==4.66.4
-utm==0.7.0
+# Core ML dependencies
+torch
+torchvision
+segmentation_models_pytorch
+safetensors
+
+# Data processing
+numpy
+opencv_python_headless
+Pillow
+rasterio
+Shapely
+geopandas
+
+# Utilities
+tqdm
+utm

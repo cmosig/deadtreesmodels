@@ -6,7 +6,6 @@ import numpy as np
 
 
 class InferenceDataset(Dataset):
-
     def __init__(self, image_src, tile_size=512, padding=56):
         super(InferenceDataset, self).__init__()
         self.tile_size = tile_size

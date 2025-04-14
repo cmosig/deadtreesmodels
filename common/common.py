@@ -11,7 +11,6 @@ import rasterio.warp
 import rasterio.enums
 from rasterio.vrt import WarpedVRT
 
-
 def get_utm_string_from_latlon(lat, lon):
     zone = utm.from_latlon(lat, lon)
     utm_code = 32600 + zone[2]
@@ -126,7 +125,7 @@ def image_reprojector(input_tif, min_res=0, max_res=1e9):
             dataset.height,
             *dataset.bounds,
             resolution=target_res)
-
+        
     vrt = WarpedVRT(dataset, crs=utm_crs, transform=default_transform, width=width, height=height, dtype="uint8", nodata=0)
 
     return vrt

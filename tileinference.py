@@ -104,4 +104,3 @@ with rasterio.open(
     nodata=nodata,
 ) as dst:
     dst.write(output, 1)
-
