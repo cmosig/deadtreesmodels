@@ -28,34 +28,19 @@ class DeadwoodInference:
 
 		self.load_model()
 
-	def get_cache_path(self):
-		model_path = Path(self.model_path)
-		return model_path.parent / f'{self.config["model_name"]}_pretrained.pt'
-
 	def load_model(self):
 		if 'segformer_b5' in self.config['model_name']:
 			cache_path = self.get_cache_path()
 
 			# Try to load from cache first
-			if cache_path.exists():
-				model = smp.Unet(
-					encoder_name='mit_b5',
-					encoder_weights=None,  # Don't load pretrained weights
-					in_channels=3,
-					classes=1,
-				).to(memory_format=torch.channels_last)
+			model = smp.Unet(
+				encoder_name='mit_b5',
+				encoder_weights=None,  # Don't load pretrained weights
+				in_channels=3,
+				classes=1,
+			).to(memory_format=torch.channels_last)
 
-				model.load_state_dict(torch.load(str(cache_path)))
-			else:
-				# Load with pretrained weights and cache
-				model = smp.Unet(
-					encoder_name='mit_b5',
-					encoder_weights=None,
-					in_channels=3,
-					classes=1,
-				).to(memory_format=torch.channels_last)
-
-				torch.save(model.state_dict(), str(cache_path))
+			model.load_state_dict(torch.load(self.model_path))
 
 			model = torch.compile(model, backend='aot_eager')
 			safetensors.torch.load_model(model, self.model_path)
