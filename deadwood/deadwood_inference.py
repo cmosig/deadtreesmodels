@@ -15,7 +15,7 @@ from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygo
 
 
 class DeadwoodInference:
-    
+
 
     def __init__(self, config_path: str, model_path: str):
 
@@ -54,7 +54,7 @@ class DeadwoodInference:
                 # Load with pretrained weights and cache
                 model = smp.Unet(
                     encoder_name="mit_b5",
-                    encoder_weights="imagenet",
+                    encoder_weights=None,
                     in_channels=3,
                     classes=1,
                 ).to(memory_format=torch.channels_last)
