@@ -15,3 +15,6 @@ geopandas
 # Utilities
 tqdm
 utm
+
+# Code formatting
+ruff

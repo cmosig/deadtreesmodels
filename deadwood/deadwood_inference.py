@@ -15,194 +15,177 @@ from ..common import mask_to_polygons, filter_polygons_by_area, reproject_polygo
 
 
 class DeadwoodInference:
+	def __init__(self, config_path: str, model_path: str):
+		# set float32 matmul precision for higher performance
+		torch.set_float32_matmul_precision('high')
 
+		with open(config_path, 'r') as f:
+			self.config = json.load(f)
 
-    def __init__(self, config_path: str, model_path: str):
+		self.model = None
+		self.model_path = model_path
+		self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # set float32 matmul precision for higher performance
-        torch.set_float32_matmul_precision('high')
+		self.load_model()
 
-        with open(config_path, 'r') as f:
-            self.config = json.load(f)
+	def get_cache_path(self):
+		model_path = Path(self.model_path)
+		return model_path.parent / f'{self.config["model_name"]}_pretrained.pt'
 
-        self.model = None
-        self.model_path = model_path
-        self.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu")
+	def load_model(self):
+		if 'segformer_b5' in self.config['model_name']:
+			cache_path = self.get_cache_path()
 
-        self.load_model()
+			# Try to load from cache first
+			if cache_path.exists():
+				model = smp.Unet(
+					encoder_name='mit_b5',
+					encoder_weights=None,  # Don't load pretrained weights
+					in_channels=3,
+					classes=1,
+				).to(memory_format=torch.channels_last)
 
-    def get_cache_path(self):
-        model_path = Path(self.model_path)
-        return model_path.parent / f'{self.config["model_name"]}_pretrained.pt'
+				model.load_state_dict(torch.load(str(cache_path)))
+			else:
+				# Load with pretrained weights and cache
+				model = smp.Unet(
+					encoder_name='mit_b5',
+					encoder_weights=None,
+					in_channels=3,
+					classes=1,
+				).to(memory_format=torch.channels_last)
 
-    def load_model(self):
-        if "segformer_b5" in self.config["model_name"]:
-            cache_path = self.get_cache_path()
+				torch.save(model.state_dict(), str(cache_path))
 
-            # Try to load from cache first
-            if cache_path.exists():
-                model = smp.Unet(
-                    encoder_name="mit_b5",
-                    encoder_weights=None,  # Don't load pretrained weights
-                    in_channels=3,
-                    classes=1,
-                ).to(memory_format=torch.channels_last)
+			model = torch.compile(model, backend='aot_eager')
+			safetensors.torch.load_model(model, self.model_path)
+			model = model.to(memory_format=torch.channels_last, device=self.device)
+			model.eval()
 
-                model.load_state_dict(torch.load(str(cache_path)))
-            else:
-                # Load with pretrained weights and cache
-                model = smp.Unet(
-                    encoder_name="mit_b5",
-                    encoder_weights=None,
-                    in_channels=3,
-                    classes=1,
-                ).to(memory_format=torch.channels_last)
+			self.model = model
+		else:
+			print('Invalid model name: ', self.config['model_name'], 'Exiting...')
+			exit()
 
-                torch.save(model.state_dict(), str(cache_path))
+	def inference_deadwood(self, input_tif):
+		"""
+		gets path to tif file and returns polygons of deadwood in the CRS of the tif
+		"""
 
-            # Disabled torch.compile due to Python 3.12.3 compatibility constraints. The feature is not supported in the current PyTorch version used in the TCD conda environment.
-            model = torch.compile(model, backend='aot_eager')
-            safetensors.torch.load_model(model, self.model_path)
-            model = model.to(memory_format=torch.channels_last, device=self.device)
-            model.eval()
+		# using memory file to avoid multiprocessing issues in workers
+		vrt_src = image_reprojector(input_tif, min_res=self.config['deadwood_minimum_inference_resolution'])
 
-            self.model = model
-        else:
-            print("Invalid model name: ", self.config["model_name"], "Exiting...")
-            exit()
+		# use memory file as input to inference dataset
+		dataset = InferenceDataset(image_src=vrt_src, tile_size=1024, padding=256)
 
-    def inference_deadwood(self, input_tif):
-        """
-        gets path to tif file and returns polygons of deadwood in the CRS of the tif
-        """
+		# get vrt source for later use
+		vrt_src = dataset.image_src
 
-        # using memory file to avoid multiprocessing issues in workers
-        vrt_src = image_reprojector(
-            input_tif, min_res=self.config['deadwood_minimum_inference_resolution']
-        )
+		loader_args = {
+			'batch_size': self.config['batch_size'],
+			'num_workers': self.config['num_dataloader_workers'],
+			'pin_memory': True,
+			'shuffle': False,
+		}
+		inference_loader = DataLoader(dataset, **loader_args)
 
-        # use memory file as input to inference dataset
-        dataset = InferenceDataset(image_src=vrt_src, tile_size=1024, padding=256)
+		outimage = np.zeros((dataset.height, dataset.width), dtype=np.float32)
+		for images, cropped_windows in tqdm(inference_loader, desc='inference'):
+			images = images.to(device=self.device, memory_format=torch.channels_last)
 
-        # get vrt source for later use
-        vrt_src = dataset.image_src
+			output = None
+			with torch.no_grad():
+				# if the the batch size is smaller than the configured batch size, apply padding
+				if images.shape[0] < self.config['batch_size']:
+					pad = torch.zeros((self.config['batch_size'], 3, 1024, 1024), dtype=torch.float32)
+					pad[: images.shape[0]] = images
+					# move to device
+					pad = pad.to(device=self.device, memory_format=torch.channels_last)
+					output = self.model(pad)
+					output = output[: images.shape[0]]
+				else:
+					output = self.model(images)
 
-        loader_args = {
-            "batch_size": self.config["batch_size"],
-            "num_workers": self.config["num_dataloader_workers"],
-            "pin_memory": True,
-            "shuffle": False,
-        }
-        inference_loader = DataLoader(dataset, **loader_args)
+				output = torch.sigmoid(output)
 
-        outimage = np.zeros((dataset.height, dataset.width), dtype=np.float32)
-        for images, cropped_windows in tqdm(inference_loader,
-                                            desc="inference"):
+			# go through batch and save to output
+			for i in range(output.shape[0]):
+				output_tile = output[i].cpu()
 
-            images = images.to(device=self.device,
-                               memory_format=torch.channels_last)
+				# crop tensor by dataset padding
+				output_tile = crop(
+					output_tile,
+					top=dataset.padding,
+					left=dataset.padding,
+					height=dataset.tile_size - (2 * dataset.padding),
+					width=dataset.tile_size - (2 * dataset.padding),
+				)
 
-            output = None
-            with torch.no_grad():
+				# derive min/max from cropped window
+				minx = cropped_windows['col_off'][i]
+				maxx = minx + cropped_windows['width'][i]
+				miny = cropped_windows['row_off'][i]
+				maxy = miny + cropped_windows['width'][i]
 
-                # if the the batch size is smaller than the configured batch size, apply padding
-                if images.shape[0] < self.config["batch_size"]:
-                    pad = torch.zeros(
-                        (self.config["batch_size"], 3, 1024, 1024),
-                        dtype=torch.float32)
-                    pad[:images.shape[0]] = images
-                    # move to device
-                    pad = pad.to(device=self.device,
-                                 memory_format=torch.channels_last)
-                    output = self.model(pad)
-                    output = output[:images.shape[0]]
-                else:
-                    output = self.model(images)
+				# clip to positive values when writing and also to the image size
+				diff_minx = 0
+				if minx < 0:
+					diff_minx = abs(minx)
+					minx = 0
 
-                output = torch.sigmoid(output)
+				diff_miny = 0
+				if miny < 0:
+					diff_miny = abs(miny)
+					miny = 0
 
-            # go through batch and save to output
-            for i in range(output.shape[0]):
-                output_tile = output[i].cpu()
+				diff_maxx = 0
+				if maxx > outimage.shape[1]:
+					diff_maxx = maxx - outimage.shape[1]
+					maxx = outimage.shape[1]
 
-                # crop tensor by dataset padding
-                output_tile = crop(
-                    output_tile,
-                    top=dataset.padding,
-                    left=dataset.padding,
-                    height=dataset.tile_size - (2 * dataset.padding),
-                    width=dataset.tile_size - (2 * dataset.padding),
-                )
+				diff_maxy = 0
+				if maxy > outimage.shape[0]:
+					diff_maxy = maxy - outimage.shape[0]
+					maxy = outimage.shape[0]
 
-                # derive min/max from cropped window
-                minx = cropped_windows["col_off"][i]
-                maxx = minx + cropped_windows["width"][i]
-                miny = cropped_windows["row_off"][i]
-                maxy = miny + cropped_windows["width"][i]
+				# crop output tile to the correct size
+				output_tile = output_tile[
+					:, diff_miny : output_tile.shape[1] - diff_maxy, diff_minx : output_tile.shape[2] - diff_maxx
+				]
 
-                # clip to positive values when writing and also to the image size
-                diff_minx = 0
-                if minx < 0:
-                    diff_minx = abs(minx)
-                    minx = 0
+				# save tile to output array
+				outimage[miny:maxy, minx:maxx] = output_tile[0].numpy()
 
-                diff_miny = 0
-                if miny < 0:
-                    diff_miny = abs(miny)
-                    miny = 0
+		print('Postprocessing mask into polygons and filtering....')
 
-                diff_maxx = 0
-                if maxx > outimage.shape[1]:
-                    diff_maxx = maxx - outimage.shape[1]
-                    maxx = outimage.shape[1]
+		# threshold the output image
+		outimage = (outimage > self.config['probabilty_threshold']).astype(np.uint8)
 
-                diff_maxy = 0
-                if maxy > outimage.shape[0]:
-                    diff_maxy = maxy - outimage.shape[0]
-                    maxy = outimage.shape[0]
+		# Get the dataset mask
+		nodata_mask = vrt_src.dataset_mask()
 
-                # crop output tile to the correct size
-                output_tile = output_tile[:, diff_miny:output_tile.shape[1] -
-                                          diff_maxy,
-                                          diff_minx:output_tile.shape[2] -
-                                          diff_maxx]
+		# Only apply masking if the mask is standard (contains only 0 and 255)
+		unique_mask_values = np.unique(nodata_mask)
+		if len(unique_mask_values) <= 2 and (0 in unique_mask_values or 255 in unique_mask_values):
+			# Standard mask with 0 and 255 values - apply it
+			outimage = outimage * (nodata_mask / 255).astype(np.uint8)
+			# fixes issues like https://github.com/Deadwood-ai/deadtrees/issues/127 and https://github.com/Deadwood-ai/deadtrees/issues/187
+		else:
+			# Non-standard mask with values all over the place - skip masking
+			print('Non-standard mask detected with values:', unique_mask_values)
+			print('Skipping masking operation to avoid artifacts')
 
-                # save tile to output array
-                outimage[miny:maxy, minx:maxx] = output_tile[0].numpy()
+		# get polygons from mask
+		polygons = mask_to_polygons(outimage, dataset.image_src)
 
-        print("Postprocessing mask into polygons and filtering....")
+		# close the vrt
+		vrt_src.close()
 
-        # threshold the output image
-        outimage = (outimage > self.config["probabilty_threshold"]).astype(np.uint8)
+		polygons = filter_polygons_by_area(polygons, self.config['minimum_polygon_area'])
 
-        # Get the dataset mask
-        nodata_mask = vrt_src.dataset_mask()
+		# reproject the polygons back into the crs of the input tif
+		polygons = reproject_polygons(polygons, dataset.image_src.crs, rasterio.open(input_tif).crs)
 
-        # Only apply masking if the mask is standard (contains only 0 and 255)
-        unique_mask_values = np.unique(nodata_mask)
-        if len(unique_mask_values) <= 2 and (0 in unique_mask_values or 255 in unique_mask_values):
-            # Standard mask with 0 and 255 values - apply it
-            outimage = outimage * (nodata_mask / 255).astype(np.uint8)
-            # fixes issues like https://github.com/Deadwood-ai/deadtrees/issues/127 and https://github.com/Deadwood-ai/deadtrees/issues/187
-        else:
-            # Non-standard mask with values all over the place - skip masking
-            print("Non-standard mask detected with values:", unique_mask_values)
-            print("Skipping masking operation to avoid artifacts")
+		print('done')
 
-        # get polygons from mask
-        polygons = mask_to_polygons(outimage, dataset.image_src)
-
-        # close the vrt
-        vrt_src.close()
-
-        polygons = filter_polygons_by_area(polygons,
-                                           self.config["minimum_polygon_area"])
-
-        # reproject the polygons back into the crs of the input tif
-        polygons = reproject_polygons(polygons, dataset.image_src.crs,
-                                      rasterio.open(input_tif).crs)
-
-        print("done")
-
-        return polygons
+		return polygons
