@@ -77,7 +77,7 @@ class DeadwoodInference:
         }
         inference_loader = DataLoader(dataset, **loader_args)
 
-        outimage = np.zeros((dataset.height, dataset.width), dtype=np.float32)
+        outimage = np.zeros((dataset.height, dataset.width), dtype=np.bool)
         for images, cropped_windows in tqdm(inference_loader, desc="inference"):
             images = images.to(device=self.device, memory_format=torch.channels_last)
 
@@ -145,13 +145,17 @@ class DeadwoodInference:
                     diff_minx : output_tile.shape[2] - diff_maxx,
                 ]
 
+                output_tile = output_tile[0].numpy()
+
+                # threshold the output image
+                output_tile = (
+                    output_tile > self.config["probabilty_threshold"]
+                ).astype(np.bool)
+
                 # save tile to output array
-                outimage[miny:maxy, minx:maxx] = output_tile[0].numpy()
+                outimage[miny:maxy, minx:maxx] = output_tile
 
         print("Postprocessing mask into polygons and filtering....")
-
-        # threshold the output image
-        outimage = (outimage > self.config["probabilty_threshold"]).astype(np.uint8)
 
         # get nodata mask
         nodata_mask = vrt_src.dataset_mask() == 255
