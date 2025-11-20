@@ -77,7 +77,7 @@ class DeadwoodInference:
         }
         inference_loader = DataLoader(dataset, **loader_args)
 
-        outimage = np.zeros((dataset.height, dataset.width), dtype=np.bool)
+        outimage = np.zeros((dataset.height, dataset.width), dtype=bool)
         for images, cropped_windows in tqdm(inference_loader, desc="inference"):
             images = images.to(device=self.device, memory_format=torch.channels_last)
 
@@ -150,7 +150,7 @@ class DeadwoodInference:
                 # threshold the output image
                 output_tile = (
                     output_tile > self.config["probabilty_threshold"]
-                ).astype(np.bool)
+                ).astype(bool)
 
                 # save tile to output array
                 outimage[miny:maxy, minx:maxx] = output_tile
