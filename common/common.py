@@ -1,15 +1,16 @@
-import utm
-import numpy as np
 import json
+
 import cv2
-from shapely.geometry import Polygon, MultiPolygon
-from shapely.affinity import affine_transform
-import shapely
 import geopandas as gpd
+import numpy as np
 import rasterio
-import rasterio.warp
 import rasterio.enums
+import rasterio.warp
+import shapely
+import utm
 from rasterio.vrt import WarpedVRT
+from shapely.affinity import affine_transform
+from shapely.geometry import MultiPolygon, Polygon
 
 
 def get_utm_string_from_latlon(lat, lon):
@@ -69,9 +70,11 @@ def mask_to_polygons(mask, dataset_reader):
     that are in the crs of the passed dataset reader
     """
 
-    contours, hierarchy = cv2.findContours(mask.astype(np.uint8).copy(),
-                                           mode=cv2.RETR_CCOMP,
-                                           method=cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(
+        mask.astype(np.uint8).copy(),
+        mode=cv2.RETR_CCOMP,
+        method=cv2.CHAIN_APPROX_SIMPLE,
+    )
 
     # if no contours are found, return empty list
     if hierarchy is None or len(hierarchy) == 0:
@@ -83,8 +86,14 @@ def mask_to_polygons(mask, dataset_reader):
 
     # affine transform from pixel to world coordinates
     transform = dataset_reader.transform
-    transform_matrix = (transform.a, transform.b, transform.d, transform.e,
-                        transform.c, transform.f)
+    transform_matrix = (
+        transform.a,
+        transform.b,
+        transform.d,
+        transform.e,
+        transform.c,
+        transform.f,
+    )
     poly = [affine_transform(p, transform_matrix) for p in poly]
 
     return poly
@@ -101,7 +110,8 @@ def image_reprojector(input_tif, min_res=0, max_res=1e9):
     utm_crs = get_utm_string_from_latlon(centroid[1], centroid[0])
 
     default_transform, width, height = rasterio.warp.calculate_default_transform(
-        dataset.crs, utm_crs, dataset.width, dataset.height, *dataset.bounds)
+        dataset.crs, utm_crs, dataset.width, dataset.height, *dataset.bounds
+    )
 
     # get original resolution
     orig_res = default_transform.a
@@ -125,9 +135,18 @@ def image_reprojector(input_tif, min_res=0, max_res=1e9):
             dataset.width,
             dataset.height,
             *dataset.bounds,
-            resolution=target_res)
+            resolution=target_res,
+        )
 
-    vrt = WarpedVRT(dataset, crs=utm_crs, transform=default_transform, width=width, height=height, dtype="uint8", nodata=0)
+    vrt = WarpedVRT(
+        dataset,
+        crs=utm_crs,
+        transform=default_transform,
+        width=width,
+        height=height,
+        dtype="uint8",
+        nodata=0,
+    )
 
     return vrt
 
@@ -149,12 +168,12 @@ def filter_polygons_by_area(polygons, min_area):
     """
     filtered = []
     for p in polygons:
-
         exterior = p.exterior
 
         # Filter holes (interior rings) by area
-        filtered_holes = [hole for hole in p.interiors
-                         if Polygon(hole).area >= min_area]
+        filtered_holes = [
+            hole for hole in p.interiors if Polygon(hole).area >= min_area
+        ]
 
         # Create new polygon with filtered holes
         filtered_p = Polygon(exterior, filtered_holes)
@@ -162,5 +181,7 @@ def filter_polygons_by_area(polygons, min_area):
         if filtered_p.area >= min_area:
             filtered.append(p)
 
-    print(f"Filtered {len(polygons) - len(filtered)} polygons by minimum area of {min_area}m2.")
+    print(
+        f"Filtered {len(polygons) - len(filtered)} polygons by minimum area of {min_area}m2."
+    )
     return filtered
