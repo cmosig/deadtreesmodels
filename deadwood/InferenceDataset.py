@@ -1,12 +1,11 @@
+import numpy as np
 import rasterio
 from rasterio import windows
 from torch.utils.data import Dataset
 from torchvision.transforms import transforms
-import numpy as np
 
 
 class InferenceDataset(Dataset):
-
     def __init__(self, image_src, tile_size=512, padding=56):
         super(InferenceDataset, self).__init__()
         self.tile_size = tile_size
@@ -16,7 +15,8 @@ class InferenceDataset(Dataset):
         self.height = self.image_src.height
 
         self.cropped_windows = [
-            window for window in get_windows(
+            window
+            for window in get_windows(
                 xmin=-self.padding,
                 ymin=-self.padding,
                 xmax=self.width + self.padding,
@@ -48,13 +48,14 @@ class InferenceDataset(Dataset):
 
         # enable boundless reads also for VRTs by adding padding of zeros if necessary
         if image.shape[1] < self.tile_size or image.shape[2] < self.tile_size:
-
-            pad_left = 0 if inference_window.col_off >= 0 else abs(
-                inference_window.col_off)
+            pad_left = (
+                0 if inference_window.col_off >= 0 else abs(inference_window.col_off)
+            )
             pad_right = self.tile_size - (pad_left + image.shape[2])
 
-            pad_top = 0 if inference_window.row_off >= 0 else abs(
-                inference_window.row_off)
+            pad_top = (
+                0 if inference_window.row_off >= 0 else abs(inference_window.row_off)
+            )
             pad_bottom = self.tile_size - (pad_top + image.shape[1])
 
             image = np.pad(
@@ -71,13 +72,15 @@ class InferenceDataset(Dataset):
         # Reshape the image tensor to have 3 channels
         image = image.transpose(1, 2, 0)
 
-        image_transforms = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-            ),
-        ])
+        image_transforms = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406],
+                    std=[0.229, 0.224, 0.225],
+                ),
+            ]
+        )
         image_tensor = image_transforms(image).float().contiguous()
         return image_tensor, cropped_window_dict
 
