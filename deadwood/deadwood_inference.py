@@ -78,7 +78,9 @@ class DeadwoodInference:
         inference_loader = DataLoader(dataset, **loader_args)
 
         outimage = np.zeros((dataset.height, dataset.width), dtype=bool)
-        for images, cropped_windows in tqdm(inference_loader, desc="inference"):
+        for nodata_mask, images, cropped_windows in tqdm(
+            inference_loader, desc="inference"
+        ):
             images = images.to(device=self.device, memory_format=torch.channels_last)
 
             output = None
@@ -101,10 +103,19 @@ class DeadwoodInference:
             # go through batch and save to output
             for i in range(output.shape[0]):
                 output_tile = output[i].cpu()
+                nodata_mask_tile = nodata_mask[i]
 
                 # crop tensor by dataset padding
                 output_tile = crop(
                     output_tile,
+                    top=dataset.padding,
+                    left=dataset.padding,
+                    height=dataset.tile_size - (2 * dataset.padding),
+                    width=dataset.tile_size - (2 * dataset.padding),
+                )
+
+                nodata_mask_tile = crop(
+                    nodata_mask_tile,
                     top=dataset.padding,
                     left=dataset.padding,
                     height=dataset.tile_size - (2 * dataset.padding),
@@ -145,6 +156,12 @@ class DeadwoodInference:
                     diff_minx : output_tile.shape[2] - diff_maxx,
                 ]
 
+                # crop nodata mask to correct size
+                nodata_mask_tile = nodata_mask_tile[
+                    diff_miny : nodata_mask_tile.shape[0] - diff_maxy,
+                    diff_minx : nodata_mask_tile.shape[1] - diff_maxx,
+                ]
+
                 output_tile = output_tile[0].numpy()
 
                 # threshold the output image
@@ -152,19 +169,53 @@ class DeadwoodInference:
                     output_tile > self.config["probabilty_threshold"]
                 ).astype(bool)
 
+                # apply nodata mask
+                output_tile[~nodata_mask_tile] = 0
+
                 # save tile to output array
                 outimage[miny:maxy, minx:maxx] = output_tile
 
         print("Postprocessing mask into polygons and filtering....")
+        if outimage.shape[0] * outimage.shape[1] > self.config["mask_tiling_threshold"]:
+            # derive tile size based on threshold
+            tile_size = int(np.sqrt(self.config["mask_tiling_threshold"]))
 
-        # get nodata mask
-        nodata_mask = vrt_src.dataset_mask() == 255
+            print(
+                "Mask size exceeds threshold, processing in tiles of size ", tile_size
+            )
 
-        # mask out nodata in predictions
-        outimage[~nodata_mask] = 0
+            pbar_tiles = tqdm(
+                total=(
+                    (outimage.shape[0] // tile_size + 1)
+                    * (outimage.shape[1] // tile_size + 1)
+                ),
+                desc="vectorizing mask",
+            )
+            for y in range(0, outimage.shape[0], tile_size):
+                for x in range(0, outimage.shape[1], tile_size):
+                    outimage_tile = outimage[
+                        y : min(y + tile_size, outimage.shape[0]),
+                        x : min(x + tile_size, outimage.shape[1]),
+                    ]
 
-        # get polygons from mask
-        polygons = mask_to_polygons(outimage, dataset.image_src)
+                    # get polygons from mask tile
+                    tile_polygons = mask_to_polygons(
+                        outimage_tile, dataset.image_src, offset_x=x, offset_y=y
+                    )
+
+                    if x == 0 and y == 0:
+                        polygons = tile_polygons
+                    else:
+                        polygons.extend(tile_polygons)
+
+                    pbar_tiles.update(1)
+
+        else:
+            # get polygons from mask
+            polygons = mask_to_polygons(
+                outimage,
+                dataset.image_src,
+            )
 
         # close the vrt
         vrt_src.close()
@@ -177,7 +228,5 @@ class DeadwoodInference:
         polygons = reproject_polygons(
             polygons, dataset.image_src.crs, rasterio.open(input_tif).crs
         )
-
-        print("done")
 
         return polygons

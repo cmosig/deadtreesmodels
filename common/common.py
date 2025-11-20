@@ -4,13 +4,13 @@ import cv2
 import geopandas as gpd
 import numpy as np
 import rasterio
-import rasterio.enums
 import rasterio.warp
 import shapely
 import utm
 from rasterio.vrt import WarpedVRT
 from shapely.affinity import affine_transform
 from shapely.geometry import MultiPolygon, Polygon
+from tqdm import tqdm
 
 
 def get_utm_string_from_latlon(lat, lon):
@@ -64,7 +64,7 @@ def merge_polygons(contours, hierarchy) -> MultiPolygon:
     return polygons
 
 
-def mask_to_polygons(mask, dataset_reader):
+def mask_to_polygons(mask, dataset_reader, offset_x=0, offset_y=0):
     """
     this function takes a numpy mask as input and returns a list of polygons
     that are in the crs of the passed dataset reader
@@ -91,8 +91,8 @@ def mask_to_polygons(mask, dataset_reader):
         transform.b,
         transform.d,
         transform.e,
-        transform.c,
-        transform.f,
+        transform.c + offset_x * transform.a,
+        transform.f + offset_y * transform.e,
     )
     poly = [affine_transform(p, transform_matrix) for p in poly]
 
@@ -167,7 +167,7 @@ def filter_polygons_by_area(polygons, min_area):
     filters the polygons by the minimum area
     """
     filtered = []
-    for p in polygons:
+    for p in tqdm(polygons, desc="filtering polygons by area"):
         exterior = p.exterior
 
         # Filter holes (interior rings) by area

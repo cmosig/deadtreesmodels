@@ -45,6 +45,7 @@ class InferenceDataset(Dataset):
             cropped_window.height + (2 * self.padding),
         )
         image = self.image_src.read((1, 2, 3), window=inference_window)
+        nodata_mask = self.image_src.dataset_mask(window=inference_window) == 255
 
         # enable boundless reads also for VRTs by adding padding of zeros if necessary
         if image.shape[1] < self.tile_size or image.shape[2] < self.tile_size:
@@ -69,6 +70,16 @@ class InferenceDataset(Dataset):
                 constant_values=0,
             )
 
+            nodata_mask = np.pad(
+                nodata_mask,
+                (
+                    (pad_top, pad_bottom),
+                    (pad_left, pad_right),
+                ),
+                mode="constant",
+                constant_values=255,
+            )
+
         # Reshape the image tensor to have 3 channels
         image = image.transpose(1, 2, 0)
 
@@ -82,7 +93,8 @@ class InferenceDataset(Dataset):
             ]
         )
         image_tensor = image_transforms(image).float().contiguous()
-        return image_tensor, cropped_window_dict
+
+        return nodata_mask, image_tensor, cropped_window_dict
 
 
 def get_windows(xmin, ymin, xmax, ymax, tile_width, tile_height, overlap):
