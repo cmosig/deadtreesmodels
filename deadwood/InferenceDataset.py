@@ -43,7 +43,12 @@ class InferenceDataset(Dataset):
             cropped_window.width + (2 * self.padding),
             cropped_window.height + (2 * self.padding),
         )
-        image = self.image_src.read((1, 2, 3), window=inference_window)
+        try:
+            image = self.image_src.read((1, 2, 3), window=inference_window)
+        except Exception as e:
+            raise RuntimeError(
+                f"Raster read failed at window {cropped_window_dict} (inference_window={inference_window}): {e}"
+            ) from e
 
         # enable boundless reads also for VRTs by adding padding of zeros if necessary
         if image.shape[1] < self.tile_size or image.shape[2] < self.tile_size:

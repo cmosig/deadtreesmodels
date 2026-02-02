@@ -1,7 +1,6 @@
 import torch
 from torchvision.transforms.functional import crop
 import json
-from os.path import join
 import safetensors.torch
 import segmentation_models_pytorch as smp
 from pathlib import Path
@@ -76,7 +75,6 @@ class DeadwoodInference:
         """
         gets path to tif file and returns polygons of deadwood in the CRS of the tif
         """
-
         # using memory file to avoid multiprocessing issues in workers
         vrt_src = image_reprojector(
             input_tif, min_res=self.config['deadwood_minimum_inference_resolution']
@@ -177,7 +175,10 @@ class DeadwoodInference:
         outimage = (outimage > self.config["probabilty_threshold"]).astype(np.uint8)
 
         # Get the dataset mask
-        nodata_mask = vrt_src.dataset_mask()
+        try:
+            nodata_mask = vrt_src.dataset_mask()
+        except Exception as e:
+            raise RuntimeError(f"Failed to read dataset mask from VRT: {e}") from e
 
         # Only apply masking if the mask is standard (contains only 0 and 255)
         unique_mask_values = np.unique(nodata_mask)
