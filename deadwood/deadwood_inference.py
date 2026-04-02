@@ -1,3 +1,4 @@
+import sys
 import torch
 from torchvision.transforms.functional import crop
 import json
@@ -36,6 +37,9 @@ class DeadwoodInference:
         return model_path.parent / f'{self.config["model_name"]}_pretrained.pt'
 
     def load_model(self):
+        version_parts = torch.__version__.split("+", 1)[0].split(".")
+        torch_version = tuple(int(part) for part in version_parts[:3])
+
         if "segformer_b5" in self.config["model_name"]:
             cache_path = self.get_cache_path()
 
@@ -60,8 +64,11 @@ class DeadwoodInference:
 
                 torch.save(model.state_dict(), str(cache_path))
 
-            # Disabled torch.compile due to Python 3.12.3 compatibility constraints. The feature is not supported in the current PyTorch version used in the TCD conda environment.
-            model = torch.compile(model, backend='aot_eager')
+            # PyTorch 2.4 adds torch.compile support on Python 3.12.
+            if hasattr(torch, "compile") and (
+                sys.version_info < (3, 12) or torch_version >= (2, 4, 0)
+            ):
+                model = torch.compile(model, backend='aot_eager')
             safetensors.torch.load_model(model, self.model_path)
             model = model.to(memory_format=torch.channels_last, device=self.device)
             model.eval()

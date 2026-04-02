@@ -1,6 +1,4 @@
 # Core ML dependencies
-torch
-torchvision
 segmentation_models_pytorch
 safetensors
 
